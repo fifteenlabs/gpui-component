@@ -368,6 +368,11 @@ impl SliderState {
 
         let value = self.percentage_to_value(percentage);
         let value = (value / step).round() * step;
+        // Snap the thumb to the stepped value's position, not the raw
+        // cursor position — otherwise the value lands on a step while the
+        // thumb glides freely between them. For a near-continuous `step`
+        // this is a no-op (the snapped position ≈ the cursor).
+        let percentage = self.value_to_percentage(value);
 
         if is_start {
             self.percentage.start = percentage;
