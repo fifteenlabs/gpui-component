@@ -160,6 +160,16 @@ impl InputState {
         }
 
         if self.mode.is_single_line() {
+            cx.propagate();
+            return;
+        }
+
+        // The cursor can't go any higher (no selection to collapse, already on
+        // the first display row): let the action bubble instead of consuming
+        // it, so ancestors can implement recall-style behaviors (e.g. a chat
+        // composer recalling the previously sent message on Up).
+        if self.selected_range.is_empty() && self.on_first_display_row() {
+            cx.propagate();
             return;
         }
 
@@ -172,6 +182,22 @@ impl InputState {
         }
         self.pause_blink_cursor(cx);
         self.move_vertical(-1, window, cx);
+    }
+
+    /// Whether the cursor sits on the first display row, i.e. `MoveUp` has
+    /// nowhere to go. (Row math mirrors [`Self::move_vertical`].)
+    fn on_first_display_row(&self) -> bool {
+        let display_point = self
+            .display_map
+            .offset_to_wrap_display_point(self.cursor());
+        let display_row = self
+            .display_map
+            .wrap_row_to_display_row(display_point.row)
+            .unwrap_or_else(|| {
+                self.display_map
+                    .nearest_visible_display_row(display_point.row)
+            });
+        display_row == 0
     }
 
     pub(super) fn down(&mut self, action: &MoveDown, window: &mut Window, cx: &mut Context<Self>) {
