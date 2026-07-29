@@ -43,6 +43,8 @@ pub(super) enum TextViewFormat {
     Markdown,
     /// HTML view
     Html,
+    /// Plain text view — the source is rendered verbatim, no markup parsing.
+    Plain,
 }
 
 /// The state of a TextView.
@@ -83,6 +85,12 @@ impl TextViewState {
     /// Create a HTML TextViewState.
     pub fn html(text: &str, cx: &mut Context<Self>) -> Self {
         Self::new(TextViewFormat::Html, text, cx)
+    }
+
+    /// Create a plain text TextViewState — `text` is shown verbatim, with
+    /// selection and copy but no markup parsing.
+    pub fn plain(text: &str, cx: &mut Context<Self>) -> Self {
+        Self::new(TextViewFormat::Plain, text, cx)
     }
 
     /// Create a new TextViewState.
@@ -532,6 +540,8 @@ fn parse_content(
             format::markdown::parse(&source, &mut node_cx, &options.highlight_theme)
         }
         TextViewFormat::Html => format::html::parse(&source, &mut node_cx),
+        // Verbatim text can't fail to parse.
+        TextViewFormat::Plain => Ok(format::plain::parse(&source, &mut node_cx)),
     }?;
 
     if options.append {
@@ -617,6 +627,28 @@ mod tests {
         state.read_with(cx, |state, _| {
             assert!(!state.has_selection());
             assert_eq!(state.selected_text(), "");
+        });
+    }
+
+    #[gpui::test]
+    fn plain_format_renders_source_verbatim(cx: &mut TestAppContext) {
+        cx.update(crate::init);
+        // Markup characters, indentation and blank lines a markdown parse would
+        // consume: emphasis, a heading, an indented (code-block) line.
+        let source = "# not a heading\n\n    indented *literal*\n";
+        let state = cx.update(|cx| cx.new(|cx| TextViewState::plain(source, cx)));
+        cx.run_until_parked();
+
+        state.update(cx, |state, cx| {
+            state.select_all(cx);
+        });
+
+        state.read_with(cx, |state, _| {
+            // One paragraph, no block structure derived from the source.
+            assert_eq!(state.parsed_content.document.blocks.len(), 1);
+            // The trailing newline is the separator every paragraph block ends
+            // with; everything before it is the source, unchanged.
+            assert_eq!(state.selected_text(), format!("{source}\n"));
         });
     }
 
