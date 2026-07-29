@@ -187,9 +187,7 @@ impl InputState {
     /// Whether the cursor sits on the first display row, i.e. `MoveUp` has
     /// nowhere to go. (Row math mirrors [`Self::move_vertical`].)
     fn on_first_display_row(&self) -> bool {
-        let display_point = self
-            .display_map
-            .offset_to_wrap_display_point(self.cursor());
+        let display_point = self.display_map.offset_to_wrap_display_point(self.cursor());
         let display_row = self
             .display_map
             .wrap_row_to_display_row(display_point.row)

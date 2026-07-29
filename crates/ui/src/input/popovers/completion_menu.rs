@@ -1,10 +1,10 @@
 use std::rc::Rc;
 
 use gpui::{
-    Action, Anchor, AnyElement, App, AppContext, Context, DismissEvent, Empty, Entity, EventEmitter,
-    Half as _, HighlightStyle, InteractiveElement as _, IntoElement, ParentElement, Pixels, Point,
-    Render, RenderOnce, SharedString, Styled, StyledText, Subscription, Window, anchored, deferred,
-    div, prelude::FluentBuilder, px, relative,
+    Action, Anchor, AnyElement, App, AppContext, Context, DismissEvent, Empty, Entity,
+    EventEmitter, Half as _, HighlightStyle, InteractiveElement as _, IntoElement, ParentElement,
+    Pixels, Point, Render, RenderOnce, SharedString, Styled, StyledText, Subscription, Window,
+    anchored, deferred, div, prelude::FluentBuilder, px, relative,
 };
 use lsp_types::{CompletionItem, CompletionTextEdit};
 
