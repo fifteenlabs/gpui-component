@@ -1,6 +1,7 @@
 use std::ops::Range;
+use std::time::Instant;
 
-use crate::{ActiveTheme, AxisExt, ElementExt, StyledExt, h_flex};
+use crate::{ActiveTheme, AxisExt, ElementExt, StyledExt, animation::Lerp, h_flex};
 use gpui::{
     Along, App, AppContext as _, Axis, Background, Bounds, Context, Corners, DefiniteLength,
     DragMoveEvent, Empty, Entity, EntityId, EventEmitter, Hsla, InteractiveElement, IntoElement,
@@ -196,6 +197,124 @@ pub struct SliderState {
     /// Tracks whether the user is currently interacting with the slider so we
     /// only emit [`SliderEvent::Release`] after a real press/drag.
     dragging: bool,
+    /// Where the drag in progress began. See [`DragAnchor`].
+    anchor: Option<DragAnchor>,
+    /// Tremor filtering for the pointer, when this slider has asked for it.
+    /// See [`SliderState::smoothed`].
+    smoothing: Option<OneEuroFilter>,
+}
+
+/// The 1€ filter, over a single scalar.
+///
+/// A pointer carries hand tremor, and a slider that redraws the world on every
+/// change turns a shake too small to notice into a shake impossible to miss.
+/// The obvious answer, a fixed low-pass, trades that jitter for lag at every
+/// speed — the control goes rubbery precisely when you are moving it decisively.
+///
+/// The 1€ filter (Casiez, Roussel & Vogel, CHI 2012, <https://gery.casiez.net/1euro/>)
+/// spends its smoothing where it is needed instead: it low-passes the signal's
+/// own *speed*, then uses that to pick the cutoff for the signal. Slow movement
+/// is tremor and gets smoothed hard; fast movement is intent and passes nearly
+/// untouched, so precision at rest costs no responsiveness in motion.
+///
+/// Written out rather than taken from a crate: the published crates for this
+/// either carry a linear-algebra dependency for the multidimensional case we do
+/// not have, or have not been touched since 2019.
+#[derive(Debug)]
+struct OneEuroFilter {
+    /// Previous input, previous filtered output, previous filtered speed, and
+    /// when they were taken. `None` until the first sample.
+    previous: Option<(f32, f32, f32, Instant)>,
+}
+
+impl OneEuroFilter {
+    /// Cutoff at zero speed, in Hz. Lower is steadier and laggier.
+    const MIN_CUTOFF: f32 = 1.0;
+    /// How sharply the cutoff opens up with speed. Higher cuts lag when moving
+    /// quickly, at the cost of letting more tremor through.
+    const BETA: f32 = 0.02;
+    /// Cutoff for the speed estimate itself, in Hz. Kept low so a noisy
+    /// derivative cannot make the filter chatter between smoothing regimes.
+    const DERIVATIVE_CUTOFF: f32 = 1.0;
+
+    /// Tuned for a pointer measured in screen pixels. The procedure the paper
+    /// recommends: set `BETA` to zero and lower `MIN_CUTOFF` until a held-still
+    /// pointer stops jittering, then raise `BETA` until a moving one stops
+    /// lagging.
+    fn new() -> Self {
+        Self { previous: None }
+    }
+
+    /// Forget the signal so far. Called when a drag begins, so a new gesture
+    /// does not inherit the speed of the last one.
+    fn reset(&mut self) {
+        self.previous = None;
+    }
+
+    /// The smoothing weight for a cutoff frequency over an interval.
+    fn alpha(cutoff: f32, dt: f32) -> f32 {
+        let tau = 1.0 / (2.0 * std::f32::consts::PI * cutoff);
+        1.0 / (1.0 + tau / dt)
+    }
+
+    fn filter(&mut self, value: f32, now: Instant) -> f32 {
+        let Some((previous_value, previous_output, previous_speed, at)) = self.previous else {
+            // Nothing to smooth against yet: the first sample is the truth.
+            self.previous = Some((value, value, 0.0, now));
+            return value;
+        };
+
+        let dt = now.duration_since(at).as_secs_f32();
+        // Two samples in the same instant carry no new information about speed,
+        // and dividing by the gap would be a division by zero.
+        if dt <= 0.0 {
+            return previous_output;
+        }
+
+        let speed = previous_speed.lerp(
+            &((value - previous_value) / dt),
+            Self::alpha(Self::DERIVATIVE_CUTOFF, dt),
+        );
+
+        // The whole idea, in one line: the faster the signal is moving, the
+        // higher the cutoff, the less it is smoothed.
+        let cutoff = Self::MIN_CUTOFF + Self::BETA * speed.abs();
+        let output = previous_output.lerp(&value, Self::alpha(cutoff, dt));
+
+        self.previous = Some((value, output, speed, now));
+        output
+    }
+}
+
+/// The frozen starting point of a drag.
+///
+/// A slider is normally read absolutely: take the pointer, subtract the
+/// track's origin, divide by the track's length. That is only sound while the
+/// track holds still — and a slider that *changes the layout it is drawn in*
+/// moves its own track as you drag it. A UI zoom or a font-size control does
+/// exactly that: every pointer position it reports is in units the setting has
+/// just redefined, and the track it is measured against has just moved too. The
+/// absolute reading then feeds its own output back in, and the value chases the
+/// cursor instead of following it.
+///
+/// Anchoring breaks the loop. The pointer's position and the track's length are
+/// captured once, in screen units, at the moment the drag begins; from then on
+/// the value is the starting value plus however far the pointer has physically
+/// travelled. Nothing in that chain re-reads the layout, so nothing the drag
+/// changes can come back around.
+///
+/// For a slider that does not disturb its own layout this is the same
+/// arithmetic as before — the anchor is set from the absolute reading on
+/// mouse-down, and screen units and layout units stay in lockstep.
+#[derive(Clone, Copy, Debug)]
+struct DragAnchor {
+    /// Pointer position along the axis when the drag began, in screen units.
+    pointer: Pixels,
+    /// The fraction of the track under the pointer at that moment.
+    percentage: f32,
+    /// The track's length when the drag began, in screen units. Captured
+    /// because the track can be resized by the very value being dragged.
+    track: Pixels,
 }
 
 impl SliderState {
@@ -210,7 +329,21 @@ impl SliderState {
             bounds: Bounds::default(),
             scale: SliderScale::default(),
             dragging: false,
+            anchor: None,
+            smoothing: None,
         }
+    }
+
+    /// Smooth hand tremor out of the pointer while dragging.
+    ///
+    /// Off by default, because smoothing buys steadiness with latency and most
+    /// sliders have no jitter problem to spend it on. Worth turning on when a
+    /// small change is expensive or highly visible — a control that resizes the
+    /// interface it is drawn in, say, where a tremor too small to read as a
+    /// number is large enough to redraw the screen.
+    pub fn smoothed(mut self, smoothed: bool) -> Self {
+        self.smoothing = smoothed.then(OneEuroFilter::new);
+        self
     }
 
     /// Set the minimum value of the slider, default: 0.0
@@ -339,19 +472,21 @@ impl SliderState {
         }
     }
 
-    /// Update value by mouse position
-    fn update_value_by_position(
+    /// Begin a drag: read the pointer against the track as an absolute
+    /// position, and remember where it started.
+    ///
+    /// This is the press, so it must be absolute — clicking a spot on the
+    /// track has to jump there. Everything after it goes through
+    /// [`Self::drag_to`], which is relative to what this captured.
+    fn press_at(
         &mut self,
         axis: Axis,
         position: Point<Pixels>,
         is_start: bool,
-        _: &mut Window,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.dragging = true;
         let bounds = self.bounds;
-        let step = self.step;
-
         let inner_pos = if axis.is_horizontal() {
             position.x - bounds.left()
         } else {
@@ -359,6 +494,66 @@ impl SliderState {
         };
         let total_size = bounds.size.along(axis);
         let percentage = inner_pos.clamp(px(0.), total_size) / total_size;
+
+        // Screen units, so the anchor survives a layout the drag itself
+        // changes. `zoom` is 1.0 for a window nobody has magnified.
+        let zoom = window.zoom();
+        if let Some(smoothing) = self.smoothing.as_mut() {
+            smoothing.reset();
+        }
+        self.anchor = Some(DragAnchor {
+            pointer: position.along(axis) * zoom,
+            percentage,
+            track: total_size * zoom,
+        });
+
+        self.apply_percentage(percentage, is_start, cx);
+    }
+
+    /// Continue a drag, by how far the pointer has physically moved since
+    /// [`Self::press_at`].
+    fn drag_to(
+        &mut self,
+        axis: Axis,
+        position: Point<Pixels>,
+        is_start: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        // No anchor means the drag began somewhere this state never saw; fall
+        // back to reading the pointer absolutely rather than doing nothing.
+        let Some(anchor) = self.anchor else {
+            return self.press_at(axis, position, is_start, window, cx);
+        };
+        if anchor.track <= px(0.) {
+            return;
+        }
+
+        // Filtered in screen units, before anything derives a value from it —
+        // the tremor is in the hand, so it is removed where the hand is.
+        let pointer = position.along(axis) * window.zoom();
+        let pointer = match self.smoothing.as_mut() {
+            Some(smoothing) => px(smoothing.filter(f32::from(pointer), Instant::now())),
+            None => pointer,
+        };
+
+        let travelled = pointer - anchor.pointer;
+        // Vertical sliders count upward from the bottom, so the pointer moving
+        // down is the value going away.
+        let travelled = if axis.is_horizontal() {
+            travelled
+        } else {
+            -travelled
+        };
+
+        let percentage = (anchor.percentage + travelled / anchor.track).clamp(0., 1.);
+        self.apply_percentage(percentage, is_start, cx);
+    }
+
+    /// Snap a fraction of the track to a step, store it, and announce it.
+    fn apply_percentage(&mut self, percentage: f32, is_start: bool, cx: &mut Context<Self>) {
+        self.dragging = true;
+        let step = self.step;
 
         let percentage = if is_start {
             percentage.clamp(0.0, self.percentage.end)
@@ -388,6 +583,9 @@ impl SliderState {
     /// Emit [`SliderEvent::Release`] if the user was actively interacting
     /// with the slider. Called on mouse-up both inside and outside the slider.
     fn handle_release(&mut self, cx: &mut Context<Self>) {
+        // Dropped whether or not a drag was in progress: a stale anchor would
+        // make the next drag relative to where the *last* one started.
+        self.anchor = None;
         if !self.dragging {
             return;
         }
@@ -489,22 +687,13 @@ impl Slider {
             })
             .on_drag_move(window.listener_for(
                 &self.state,
-                move |view, e: &DragMoveEvent<DragThumb>, window, cx| {
-                    match e.drag(cx) {
-                        DragThumb((id, is_start)) => {
-                            if *id != entity_id {
-                                return;
-                            }
-
-                            // set value by mouse position
-                            view.update_value_by_position(
-                                axis,
-                                e.event.position,
-                                *is_start,
-                                window,
-                                cx,
-                            )
+                move |view, e: &DragMoveEvent<DragThumb>, window, cx| match e.drag(cx) {
+                    DragThumb((id, is_start)) => {
+                        if *id != entity_id {
+                            return;
                         }
+
+                        view.drag_to(axis, e.event.position, *is_start, window, cx)
                     }
                 },
             ))
@@ -614,9 +803,7 @@ impl RenderOnce for Slider {
                                         is_start = inner_pos < center;
                                     }
 
-                                    state.update_value_by_position(
-                                        axis, e.position, is_start, window, cx,
-                                    )
+                                    state.press_at(axis, e.position, is_start, window, cx)
                                 },
                             ),
                         )
@@ -635,13 +822,7 @@ impl RenderOnce for Slider {
                                         return;
                                     }
 
-                                    view.update_value_by_position(
-                                        axis,
-                                        e.event.position,
-                                        false,
-                                        window,
-                                        cx,
-                                    )
+                                    view.drag_to(axis, e.event.position, false, window, cx)
                                 }
                             },
                         ))
@@ -700,5 +881,67 @@ impl RenderOnce for Slider {
                             }),
                     ),
             )
+    }
+}
+
+#[cfg(test)]
+mod one_euro_tests {
+    use super::OneEuroFilter;
+    use std::time::{Duration, Instant};
+
+    /// 60Hz, the rate a pointer arrives at.
+    const FRAME: Duration = Duration::from_millis(16);
+
+    /// Feed a signal through the filter and return the last output.
+    fn run(filter: &mut OneEuroFilter, samples: impl IntoIterator<Item = f32>) -> f32 {
+        let mut now = Instant::now();
+        let mut last = 0.0;
+        for sample in samples {
+            last = filter.filter(sample, now);
+            now += FRAME;
+        }
+        last
+    }
+
+    /// The point of the whole thing: a hand held still but shaking should come
+    /// out much steadier than it went in.
+    #[test]
+    fn tremor_around_a_held_position_is_damped() {
+        let mut filter = OneEuroFilter::new();
+        // ±2px of shake around 500, for a second.
+        let tremor = (0..60).map(|i| 500.0 + if i % 2 == 0 { 2.0 } else { -2.0 });
+        let settled = run(&mut filter, tremor);
+
+        assert!(
+            (settled - 500.0).abs() < 0.5,
+            "tremor should be damped well inside its own amplitude, got {settled}"
+        );
+    }
+
+    /// And the other half: deliberate movement must not be smoothed into
+    /// treacle, or the filter has simply traded one complaint for another.
+    #[test]
+    fn deliberate_movement_keeps_up() {
+        let mut filter = OneEuroFilter::new();
+        // A steady 600px/s sweep — an ordinary drag.
+        let sweep = (0..60).map(|i| 500.0 + i as f32 * 10.0);
+        let arrived = run(&mut filter, sweep);
+
+        let target = 500.0 + 59.0 * 10.0;
+        assert!(
+            (arrived - target).abs() < 25.0,
+            "a moving pointer should stay within a few frames of the truth, got {arrived} for {target}"
+        );
+    }
+
+    /// A drag starts where the pointer is, not where the last one ended.
+    #[test]
+    fn the_first_sample_of_a_gesture_passes_through() {
+        let mut filter = OneEuroFilter::new();
+        assert_eq!(filter.filter(500.0, Instant::now()), 500.0);
+
+        run(&mut filter, [400.0, 300.0, 200.0]);
+        filter.reset();
+        assert_eq!(filter.filter(900.0, Instant::now()), 900.0);
     }
 }
