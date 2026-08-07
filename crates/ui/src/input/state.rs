@@ -114,6 +114,8 @@ actions!(
         ToggleCodeActions,
         Search,
         GoToDefinition,
+        NextCompletion,
+        PreviousCompletion,
     ]
 );
 

@@ -1,5 +1,6 @@
 use anyhow::Result;
 use gpui::{App, Context, Hsla, MouseMoveEvent, SharedString, Task, Window};
+use lsp_types::CompletionItem;
 use ropey::Rope;
 use std::rc::Rc;
 
@@ -99,6 +100,35 @@ impl InputState {
         };
 
         menu.is_open(cx)
+    }
+
+    /// How many candidates the completion menu is currently offering, or `None`
+    /// when no completion menu is open.
+    ///
+    /// A caller that routes its own key (Tab, say) into
+    /// [`Self::handle_action_for_context_menu`] needs this to tell "accept the
+    /// only candidate" from "cycle to the next one".
+    pub fn completion_menu_len(&self, cx: &App) -> Option<usize> {
+        match self.context_menu_content.as_ref()? {
+            ContextMenu::Completion(menu) if menu.read(cx).is_open() => Some(menu.read(cx).len(cx)),
+            _ => None,
+        }
+    }
+
+    /// The candidate the completion menu would insert if it were confirmed
+    /// right now, or `None` when no completion menu is open.
+    ///
+    /// Lets a caller *take over* the accept rather than route a key into it:
+    /// read what was selected, hide the menu, and put whatever the completion
+    /// actually stands for into the buffer. Without this the only way to accept
+    /// is to let the menu insert its own text first, which for a completion
+    /// whose real value has to be fetched means inserting a placeholder and
+    /// editing it away a moment later.
+    pub fn selected_completion(&self, cx: &App) -> Option<CompletionItem> {
+        match self.context_menu_content.as_ref()? {
+            ContextMenu::Completion(menu) if menu.read(cx).is_open() => menu.read(cx).selected(cx),
+            _ => None,
+        }
     }
 
     /// Handles an action for the completion menu, if it exists.

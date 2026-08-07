@@ -286,15 +286,33 @@ impl CompletionMenu {
             self.on_action_enter(window, cx);
         } else if action.partial_eq(&input::Escape) {
             self.on_action_escape(window, cx);
-        } else if action.partial_eq(&input::MoveUp) {
+        } else if action.partial_eq(&input::MoveUp) || action.partial_eq(&input::PreviousCompletion)
+        {
             self.on_action_up(window, cx);
-        } else if action.partial_eq(&input::MoveDown) {
+        } else if action.partial_eq(&input::MoveDown) || action.partial_eq(&input::NextCompletion) {
             self.on_action_down(window, cx);
         } else {
             return false;
         }
 
         true
+    }
+
+    /// How many candidates the menu is currently offering, or `None` when it
+    /// isn't open. Lets a caller that routes its own key into
+    /// [`InputState::handle_action_for_context_menu`] decide between accepting
+    /// the one candidate and cycling to the next.
+    pub(crate) fn len(&self, cx: &App) -> usize {
+        self.list.read(cx).delegate().items.len()
+    }
+
+    /// The candidate the menu would insert if it were confirmed right now.
+    pub(crate) fn selected(&self, cx: &App) -> Option<CompletionItem> {
+        self.list
+            .read(cx)
+            .delegate()
+            .selected_item()
+            .map(|item| (**item).clone())
     }
 
     fn on_action_enter(&mut self, window: &mut Window, cx: &mut Context<Self>) {
