@@ -6,9 +6,9 @@ use gpui::{
 };
 use gpui::{
     HighlightStyle, Hitbox, HitboxBehavior, Hsla, InteractiveElement, IntoElement, LayoutId,
-    MouseButton, MouseMoveEvent, MouseUpEvent, Path, Pixels, Point, Position, ShapedLine,
-    SharedString, Size, Style, Styled as _, TextAlign, TextRun, TextStyle, UnderlineStyle, Window,
-    fill, point, px, relative, size,
+    LongPressEvent, MouseButton, MouseMoveEvent, MouseUpEvent, Path, Pixels, Point, Position,
+    ShapedLine, SharedString, Size, Style, Styled as _, TextAlign, TextRun, TextStyle, TouchPhase,
+    UnderlineStyle, Window, fill, point, px, relative, size,
 };
 use ropey::Rope;
 use smallvec::SmallVec;
@@ -244,7 +244,26 @@ impl TextElement {
         self
     }
 
-    fn paint_mouse_listeners(&mut self, window: &mut Window, _: &mut App) {
+    fn paint_mouse_listeners(&mut self, bounds: Bounds<Pixels>, window: &mut Window, _: &mut App) {
+        window.on_mouse_event({
+            let state = self.state.clone();
+            move |event: &LongPressEvent, phase, window, cx| {
+                if !phase.bubble()
+                    || event.phase != TouchPhase::Started
+                    || !bounds.contains(&event.start_position)
+                {
+                    return;
+                }
+                let consumed = state.update(cx, |state, cx| {
+                    state.show_touch_context_menu(event.start_position, window, cx)
+                });
+                if consumed {
+                    window.prevent_default();
+                    cx.stop_propagation();
+                }
+            }
+        });
+
         window.on_mouse_event({
             let state = self.state.clone();
 
@@ -2163,7 +2182,7 @@ impl Element for TextElement {
             }
         }
 
-        self.paint_mouse_listeners(window, cx);
+        self.paint_mouse_listeners(input_bounds, window, cx);
     }
 }
 

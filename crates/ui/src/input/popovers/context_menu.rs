@@ -1,7 +1,7 @@
 use gpui::{
-    Anchor, App, AppContext as _, Context, DismissEvent, Entity, IntoElement, MouseDownEvent,
-    ParentElement as _, Pixels, Point, Render, Styled, Subscription, Window, anchored, deferred,
-    div, prelude::FluentBuilder as _, px,
+    Anchor, App, AppContext as _, Context, DismissEvent, Entity, IntoElement, Modifiers,
+    MouseButton, MouseDownEvent, ParentElement as _, Pixels, Point, Render, Styled, Subscription,
+    Window, anchored, deferred, div, prelude::FluentBuilder as _, px,
 };
 use rust_i18n::t;
 
@@ -23,6 +23,32 @@ pub(crate) struct InputContextMenu {
 }
 
 impl InputState {
+    /// Show the context menu for a long press at `position`, the touch
+    /// counterpart of a right click. Returns whether the press was consumed.
+    pub(crate) fn show_touch_context_menu(
+        &mut self,
+        position: Point<Pixels>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        if self.disabled || !(self.enable_context_menu || self.context_menu_builder.is_some()) {
+            return false;
+        }
+        if !self.focus_handle.is_focused(window) {
+            self.focus_handle.focus(window, cx);
+        }
+        let offset = self.index_for_mouse_position(position);
+        let event = MouseDownEvent {
+            button: MouseButton::Right,
+            position,
+            modifiers: Modifiers::default(),
+            click_count: 1,
+            first_mouse: false,
+        };
+        self.handle_right_click_menu(&event, offset, window, cx);
+        true
+    }
+
     pub(crate) fn handle_right_click_menu(
         &mut self,
         event: &MouseDownEvent,

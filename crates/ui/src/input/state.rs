@@ -8,8 +8,8 @@ use gpui::{
     EventEmitter, FocusHandle, Focusable, InteractiveElement as _, IntoElement, KeyBinding,
     KeyDownEvent, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, ParentElement as _,
     Pixels, Point, Render, ScrollHandle, ScrollWheelEvent, ShapedLine, SharedString, Styled as _,
-    Subscription, Task, UTF16Selection, Window, actions, div, point, prelude::FluentBuilder as _,
-    px,
+    Subscription, Task, TextInputConfiguration, TextInputContentType, UTF16Selection, Window,
+    actions, div, point, prelude::FluentBuilder as _, px,
 };
 use gpui::{Half, TextAlign};
 use ropey::{Rope, RopeSlice};
@@ -369,6 +369,7 @@ pub struct InputState {
     pub(super) size: Size,
     pub(super) disabled: bool,
     pub(super) masked: bool,
+    pub(super) content_type: TextInputContentType,
     pub(super) clean_on_escape: bool,
     pub(super) submit_on_enter: bool,
     pub(super) soft_wrap: bool,
@@ -485,6 +486,7 @@ impl InputState {
             selecting: false,
             disabled: false,
             masked: false,
+            content_type: TextInputContentType::default(),
             clean_on_escape: false,
             submit_on_enter: false,
             soft_wrap: true,
@@ -840,6 +842,15 @@ impl InputState {
     #[allow(unused)]
     pub(crate) fn disabled(mut self, disabled: bool) -> Self {
         self.disabled = disabled;
+        self
+    }
+
+    /// Set the kind of content the field holds, so software keyboards can
+    /// offer a matching layout (digits, a dial pad, an email keyboard).
+    ///
+    /// A masked input reports [`TextInputContentType::Password`] on its own.
+    pub fn content_type(mut self, content_type: TextInputContentType) -> Self {
+        self.content_type = content_type;
         self
     }
 
@@ -2381,6 +2392,23 @@ impl InputState {
 }
 
 impl EntityInputHandler for InputState {
+    fn text_input_configuration(
+        &mut self,
+        _window: &mut Window,
+        _cx: &mut Context<Self>,
+    ) -> TextInputConfiguration {
+        let content_type = if self.masked {
+            TextInputContentType::Password
+        } else {
+            self.content_type
+        };
+        TextInputConfiguration {
+            suggestions: !self.masked,
+            content_type,
+            ..TextInputConfiguration::default()
+        }
+    }
+
     fn text_for_range(
         &mut self,
         range_utf16: Range<usize>,
