@@ -2,7 +2,7 @@ use gpui::{
     Anchor, AnyElement, App, Bounds, Context, Deferred, DismissEvent, Div, ElementId, EventEmitter,
     FocusHandle, Focusable, InteractiveElement as _, IntoElement, KeyBinding, MouseButton,
     ParentElement, Pixels, Point, Render, RenderOnce, Stateful, StyleRefinement, Styled,
-    Subscription, Window, anchored, deferred, div, prelude::FluentBuilder as _, px,
+    Subscription, Window, anchored, deferred, div, point, prelude::FluentBuilder as _, px,
 };
 use std::{cell::Cell, rc::Rc};
 
@@ -21,6 +21,7 @@ pub struct Popover {
     id: ElementId,
     style: StyleRefinement,
     anchor: Anchor,
+    offset: Option<Point<Pixels>>,
     default_open: bool,
     open: Option<bool>,
     tracked_focus_handle: Option<FocusHandle>,
@@ -48,6 +49,7 @@ impl Popover {
             id: id.into(),
             style: StyleRefinement::default(),
             anchor: Anchor::TopLeft,
+            offset: None,
             trigger: None,
             trigger_style: None,
             content: None,
@@ -64,10 +66,24 @@ impl Popover {
 
     /// Set the anchor corner of the popover, default is `Anchor::TopLeft`.
     ///
-    /// This method is kept for backward compatibility with `Anchor` type.
-    /// Internally, it converts `Anchor` to `Anchor`.
+    /// The anchor names the corner of the popover that touches the trigger, and the
+    /// popover opens on the far side of the trigger from it: the `Top*` anchors open it
+    /// below the trigger, the `Bottom*` anchors above, aligned to the trigger's left,
+    /// center or right edge. `LeftCenter` opens it to the right of the trigger and
+    /// `RightCenter` to the left, with the top edges aligned the way a flyout menu sits
+    /// beside its row.
     pub fn anchor(mut self, anchor: impl Into<Anchor>) -> Self {
         self.anchor = anchor.into();
+        self
+    }
+
+    /// Offset the popover from the point it is anchored to.
+    ///
+    /// By default the popover keeps a 0.25rem gap from the trigger, away from it in the
+    /// direction it opens. An explicit offset replaces that gap rather than adding to it,
+    /// so the caller states the whole distance.
+    pub fn offset(mut self, offset: Point<Pixels>) -> Self {
+        self.offset = Some(offset);
         self
     }
 
@@ -169,25 +185,41 @@ impl Popover {
         self
     }
 
+    /// The point on the trigger's edge that the popover's anchor corner is placed at.
     pub(crate) fn resolved_corner(anchor: Anchor, trigger_bounds: Bounds<Pixels>) -> Point<Pixels> {
         match anchor {
-            Anchor::TopLeft => trigger_bounds.origin,
-            Anchor::TopCenter => trigger_bounds.top_center(),
-            Anchor::TopRight => trigger_bounds.top_right(),
-            Anchor::BottomLeft => Point {
-                x: trigger_bounds.origin.x,
-                y: trigger_bounds.origin.y - trigger_bounds.size.height,
-            },
-            Anchor::BottomCenter => Point {
-                x: trigger_bounds.top_center().x,
-                y: trigger_bounds.origin.y - trigger_bounds.size.height,
-            },
-            Anchor::BottomRight => Point {
-                x: trigger_bounds.top_right().x,
-                y: trigger_bounds.origin.y - trigger_bounds.size.height,
-            },
-            // Fallback for LeftCenter/RightCenter – adjust as needed.
-            _ => trigger_bounds.origin,
+            Anchor::TopLeft => trigger_bounds.bottom_left(),
+            Anchor::TopCenter => trigger_bounds.bottom_center(),
+            Anchor::TopRight => trigger_bounds.bottom_right(),
+            Anchor::BottomLeft => trigger_bounds.origin,
+            Anchor::BottomCenter => trigger_bounds.top_center(),
+            Anchor::BottomRight => trigger_bounds.top_right(),
+            Anchor::LeftCenter => trigger_bounds.top_right(),
+            Anchor::RightCenter => trigger_bounds.origin,
+        }
+    }
+
+    /// The corner gpui's `anchored` places at the resolved point.
+    ///
+    /// The side anchors align the popover's top edge with the trigger's, so the corner
+    /// handed to gpui is the top one on that side rather than the vertical center.
+    pub(crate) fn anchored_corner(anchor: Anchor) -> Anchor {
+        match anchor {
+            Anchor::LeftCenter => Anchor::TopLeft,
+            Anchor::RightCenter => Anchor::TopRight,
+            anchor => anchor,
+        }
+    }
+
+    /// The gap kept between trigger and popover when no offset is given: 0.25rem away from
+    /// the trigger in the direction the popover opens.
+    pub(crate) fn default_offset(anchor: Anchor, window: &Window) -> Point<Pixels> {
+        let gap = window.rem_size() * 0.25;
+        match anchor {
+            Anchor::TopLeft | Anchor::TopCenter | Anchor::TopRight => point(px(0.), gap),
+            Anchor::BottomLeft | Anchor::BottomCenter | Anchor::BottomRight => point(px(0.), -gap),
+            Anchor::LeftCenter => point(gap, px(0.)),
+            Anchor::RightCenter => point(-gap, px(0.)),
         }
     }
 }
@@ -218,8 +250,12 @@ pub struct PopoverState {
 
 impl PopoverState {
     pub fn new(default_open: bool, cx: &mut App) -> Self {
+        let focus_handle = cx.focus_handle();
+        if default_open {
+            GlobalState::global_mut(cx).register_deferred_popover(&focus_handle);
+        }
         Self {
-            focus_handle: cx.focus_handle(),
+            focus_handle,
             tracked_focus_handle: None,
             previous_focus_handle: None,
             trigger_bounds: Bounds::default(),
@@ -323,8 +359,9 @@ impl Popover {
     pub(crate) fn render_popover<E>(
         anchor: Anchor,
         position: Rc<Cell<Point<Pixels>>>,
+        offset: Option<Point<Pixels>>,
         content: E,
-        _: &mut Window,
+        window: &mut Window,
         _: &mut App,
     ) -> Deferred
     where
@@ -333,15 +370,15 @@ impl Popover {
         deferred(
             anchored()
                 .snap_to_window_with_margin(px(8.))
-                .anchor(anchor)
+                .anchor(Self::anchored_corner(anchor))
                 .position(position.get())
+                .offset(offset.unwrap_or_else(|| Self::default_offset(anchor, window)))
                 .child(div().relative().child(content)),
         )
         .with_priority(1)
     }
 
     pub(crate) fn render_popover_content(
-        anchor: Anchor,
         appearance: bool,
         _: &mut Window,
         cx: &mut App,
@@ -351,11 +388,6 @@ impl Popover {
             .occlude()
             .tab_group()
             .when(appearance, |this| this.popover_style(cx).p_3())
-            .map(|this| match anchor {
-                Anchor::TopLeft | Anchor::TopCenter | Anchor::TopRight => this.top_1(),
-                Anchor::BottomLeft | Anchor::BottomCenter | Anchor::BottomRight => this.bottom_1(),
-                Anchor::LeftCenter | Anchor::RightCenter => this.top_1(), // Fallback for centered
-            })
     }
 }
 
@@ -436,31 +468,47 @@ impl RenderOnce for Popover {
             return el;
         }
 
-        let popover_content =
-            Self::render_popover_content(self.anchor, self.appearance, window, cx)
-                .track_focus(&focus_handle)
-                .key_context(CONTEXT)
-                .on_action(window.listener_for(&state, PopoverState::on_action_cancel))
-                .when_some(self.content, |this, content| {
-                    this.child(state.update(cx, |state, cx| (content)(state, window, cx)))
-                })
-                .children(self.children)
-                .when(self.overlay_closable, |this| {
-                    this.on_mouse_down_out({
-                        let state = state.clone();
-                        move |_, window, cx| {
-                            state.update(cx, |state, cx| {
-                                state.dismiss(window, cx);
-                            });
-                            cx.notify(parent_view_id);
+        let popover_content = Self::render_popover_content(self.appearance, window, cx)
+            .track_focus(&focus_handle)
+            .key_context(CONTEXT)
+            .on_action(window.listener_for(&state, PopoverState::on_action_cancel))
+            .when_some(self.content, |this, content| {
+                this.child(state.update(cx, |state, cx| (content)(state, window, cx)))
+            })
+            .children(self.children)
+            .on_prepaint({
+                let focus_handle = focus_handle.clone();
+                move |bounds, _, cx| {
+                    GlobalState::global_mut(cx).set_deferred_popover_bounds(&focus_handle, bounds);
+                }
+            })
+            .when(self.overlay_closable, |this| {
+                this.on_mouse_down_out({
+                    let state = state.clone();
+                    let focus_handle = focus_handle.clone();
+                    move |event, window, cx| {
+                        // A click inside a popover nested in this one is inside this one:
+                        // the nested content is drawn outside this box, but it belongs to it.
+                        if GlobalState::global(cx).nested_deferred_popover_contains(
+                            &focus_handle,
+                            &event.position,
+                            window,
+                        ) {
+                            return;
                         }
-                    })
+                        state.update(cx, |state, cx| {
+                            state.dismiss(window, cx);
+                        });
+                        cx.notify(parent_view_id);
+                    }
                 })
-                .refine_style(&self.style);
+            })
+            .refine_style(&self.style);
 
         el.child(Self::render_popover(
             self.anchor,
             position,
+            self.offset,
             popover_content,
             window,
             cx,
@@ -471,61 +519,248 @@ impl RenderOnce for Popover {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use gpui::MouseButton;
+    use gpui::{Entity, Modifiers, MouseButton, TestAppContext, VisualTestContext, point, size};
+    use std::cell::RefCell;
 
     #[test]
     fn test_popover_builder_chaining() {
         let popover = Popover::new("test")
             .anchor(Anchor::BottomCenter)
+            .offset(point(px(2.), px(-3.)))
             .mouse_button(MouseButton::Right)
             .default_open(true)
             .appearance(false)
             .overlay_closable(false);
 
         assert_eq!(popover.anchor, Anchor::BottomCenter);
+        assert_eq!(popover.offset, Some(point(px(2.), px(-3.))));
         assert_eq!(popover.mouse_button, MouseButton::Right);
         assert!(popover.default_open);
         assert!(!popover.appearance);
         assert!(!popover.overlay_closable);
     }
 
+    fn trigger_bounds() -> Bounds<Pixels> {
+        Bounds {
+            origin: point(px(100.), px(100.)),
+            size: size(px(200.), px(50.)),
+        }
+    }
+
     #[test]
-    fn test_resolved_corner_top_positions() {
-        use gpui::px;
+    fn test_resolved_corner_opens_below_or_above_the_trigger() {
+        let bounds = trigger_bounds();
 
-        let bounds = Bounds {
-            origin: Point {
-                x: px(100.),
-                y: px(100.),
-            },
-            size: gpui::Size {
-                width: px(200.),
-                height: px(50.),
-            },
-        };
+        assert_eq!(
+            Popover::resolved_corner(Anchor::TopLeft, bounds),
+            point(px(100.), px(150.))
+        );
+        assert_eq!(
+            Popover::resolved_corner(Anchor::TopCenter, bounds),
+            point(px(200.), px(150.))
+        );
+        assert_eq!(
+            Popover::resolved_corner(Anchor::TopRight, bounds),
+            point(px(300.), px(150.))
+        );
+        assert_eq!(
+            Popover::resolved_corner(Anchor::BottomLeft, bounds),
+            point(px(100.), px(100.))
+        );
+        assert_eq!(
+            Popover::resolved_corner(Anchor::BottomCenter, bounds),
+            point(px(200.), px(100.))
+        );
+        assert_eq!(
+            Popover::resolved_corner(Anchor::BottomRight, bounds),
+            point(px(300.), px(100.))
+        );
+    }
 
-        let pos = Popover::resolved_corner(Anchor::TopLeft, bounds);
-        assert_eq!(pos.x, px(100.));
-        assert_eq!(pos.y, px(100.));
+    #[test]
+    fn test_resolved_corner_opens_beside_the_trigger_top_aligned() {
+        let bounds = trigger_bounds();
 
-        let pos = Popover::resolved_corner(Anchor::TopCenter, bounds);
-        assert_eq!(pos.x, px(200.));
-        assert_eq!(pos.y, px(100.));
+        assert_eq!(
+            Popover::resolved_corner(Anchor::LeftCenter, bounds),
+            point(px(300.), px(100.))
+        );
+        assert_eq!(
+            Popover::anchored_corner(Anchor::LeftCenter),
+            Anchor::TopLeft
+        );
+        assert_eq!(
+            Popover::resolved_corner(Anchor::RightCenter, bounds),
+            point(px(100.), px(100.))
+        );
+        assert_eq!(
+            Popover::anchored_corner(Anchor::RightCenter),
+            Anchor::TopRight
+        );
+        assert_eq!(Popover::anchored_corner(Anchor::TopLeft), Anchor::TopLeft);
+    }
 
-        let pos = Popover::resolved_corner(Anchor::TopRight, bounds);
-        assert_eq!(pos.x, px(300.));
-        assert_eq!(pos.y, px(100.));
+    #[derive(IntoElement)]
+    struct Trigger {
+        id: &'static str,
+        selected: bool,
+    }
 
-        let pos = Popover::resolved_corner(Anchor::BottomLeft, bounds);
-        assert_eq!(pos.x, px(100.));
-        assert_eq!(pos.y, px(50.));
+    impl Selectable for Trigger {
+        fn selected(mut self, selected: bool) -> Self {
+            self.selected = selected;
+            self
+        }
 
-        let pos = Popover::resolved_corner(Anchor::BottomCenter, bounds);
-        assert_eq!(pos.x, px(200.));
-        assert_eq!(pos.y, px(50.));
+        fn is_selected(&self) -> bool {
+            self.selected
+        }
+    }
 
-        let pos = Popover::resolved_corner(Anchor::BottomRight, bounds);
-        assert_eq!(pos.x, px(300.));
-        assert_eq!(pos.y, px(50.));
+    impl RenderOnce for Trigger {
+        fn render(self, _: &mut Window, _: &mut App) -> impl IntoElement {
+            div()
+                .id(self.id)
+                .debug_selector(move || self.id.into())
+                .size(px(40.))
+        }
+    }
+
+    /// An outer popover whose content holds an inner popover; both start open.
+    struct Nested {
+        inner_focus: Rc<RefCell<Option<FocusHandle>>>,
+    }
+
+    impl Render for Nested {
+        fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+            let inner_focus = self.inner_focus.clone();
+            div().size_full().p(px(100.)).child(
+                Popover::new("outer")
+                    .appearance(false)
+                    .default_open(true)
+                    .trigger(Trigger {
+                        id: "outer-trigger",
+                        selected: false,
+                    })
+                    .content(move |_, _, _| {
+                        let inner_focus = inner_focus.clone();
+                        div()
+                            .debug_selector(|| "outer-content".into())
+                            .flex()
+                            .flex_col()
+                            .items_start()
+                            .w(px(200.))
+                            .h(px(300.))
+                            .child(
+                                Popover::new("inner")
+                                    .anchor(Anchor::LeftCenter)
+                                    .appearance(false)
+                                    .default_open(true)
+                                    .trigger(Trigger {
+                                        id: "inner-trigger",
+                                        selected: false,
+                                    })
+                                    .content(move |state, _, cx| {
+                                        *inner_focus.borrow_mut() = Some(state.focus_handle(cx));
+                                        div()
+                                            .debug_selector(|| "inner-content".into())
+                                            .w(px(400.))
+                                            .h(px(100.))
+                                    }),
+                            )
+                    }),
+            )
+        }
+    }
+
+    fn nested(cx: &mut TestAppContext) -> (Entity<Nested>, &mut VisualTestContext) {
+        cx.update(crate::init);
+        let (view, cx) = cx.add_window_view(|_, _| Nested {
+            inner_focus: Rc::new(RefCell::new(None)),
+        });
+        // The first frame measures the outer trigger, the second draws the outer popover
+        // and measures the inner trigger, the third draws the inner popover.
+        cx.run_until_parked();
+        redraw(cx);
+        redraw(cx);
+        (view, cx)
+    }
+
+    fn bounds(cx: &mut VisualTestContext, selector: &'static str) -> Bounds<Pixels> {
+        cx.debug_bounds(selector)
+            .unwrap_or_else(|| panic!("{selector} is not drawn"))
+    }
+
+    fn redraw(cx: &mut VisualTestContext) {
+        cx.run_until_parked();
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+        cx.run_until_parked();
+    }
+
+    #[gpui::test]
+    fn the_trigger_probe_measures_the_trigger_itself(cx: &mut TestAppContext) {
+        let (_, cx) = nested(cx);
+        let trigger = bounds(cx, "outer-trigger");
+        let content = bounds(cx, "outer-content");
+
+        assert_eq!(trigger.size, size(px(40.), px(40.)));
+        assert_eq!(content.origin.x, trigger.origin.x);
+        assert_eq!(content.origin.y, trigger.bottom_left().y + px(4.));
+    }
+
+    #[gpui::test]
+    fn a_side_anchor_opens_beside_the_trigger_top_aligned(cx: &mut TestAppContext) {
+        let (_, cx) = nested(cx);
+        let trigger = bounds(cx, "inner-trigger");
+        let content = bounds(cx, "inner-content");
+
+        assert_eq!(content.origin.x, trigger.top_right().x + px(4.));
+        assert_eq!(content.origin.y, trigger.origin.y);
+    }
+
+    #[gpui::test]
+    fn a_click_inside_a_nested_popover_keeps_its_ancestor_open(cx: &mut TestAppContext) {
+        let (_, cx) = nested(cx);
+        let inner = bounds(cx, "inner-content");
+        let outer = bounds(cx, "outer-content");
+        let inside_inner_only = point(inner.right() - px(20.), inner.center().y);
+        assert!(inner.contains(&inside_inner_only));
+        assert!(!outer.contains(&inside_inner_only));
+
+        cx.simulate_mouse_down(inside_inner_only, MouseButton::Left, Modifiers::default());
+        redraw(cx);
+
+        assert!(cx.debug_bounds("outer-content").is_some());
+        assert!(cx.debug_bounds("inner-content").is_some());
+    }
+
+    #[gpui::test]
+    fn a_click_outside_every_popover_closes_them_all(cx: &mut TestAppContext) {
+        let (_, cx) = nested(cx);
+
+        cx.simulate_mouse_down(
+            point(px(5.), px(5.)),
+            MouseButton::Left,
+            Modifiers::default(),
+        );
+        redraw(cx);
+
+        assert!(cx.debug_bounds("outer-content").is_none());
+        assert!(cx.debug_bounds("inner-content").is_none());
+    }
+
+    #[gpui::test]
+    fn escape_closes_only_the_innermost_popover(cx: &mut TestAppContext) {
+        let (view, cx) = nested(cx);
+        let inner_focus = view.read_with(cx, |view, _| view.inner_focus.borrow().clone());
+        let inner_focus = inner_focus.expect("inner content rendered");
+        cx.update(|window, cx| inner_focus.focus(window, cx));
+        redraw(cx);
+
+        cx.simulate_keystrokes("escape");
+        redraw(cx);
+
+        assert!(cx.debug_bounds("outer-content").is_some());
+        assert!(cx.debug_bounds("inner-content").is_none());
     }
 }

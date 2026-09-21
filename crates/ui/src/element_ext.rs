@@ -41,6 +41,12 @@ pub trait ElementExt: ParentElement + Sized {
     ///
     /// The first argument is the bounds of the element in pixels.
     ///
+    /// The probe is an absolutely positioned child pinned to the element's
+    /// top-left corner. Without explicit insets an absolute child sits at its
+    /// static position, which in a block container is below the in-flow
+    /// children — the probe would then report bounds starting at the element's
+    /// bottom edge rather than at the element itself.
+    ///
     /// See also [`gpui::canvas`].
     fn on_prepaint<F>(self, f: F) -> Self
     where
@@ -52,6 +58,8 @@ pub trait ElementExt: ParentElement + Sized {
                 |_, _, _, _| {},
             )
             .absolute()
+            .top_0()
+            .left_0()
             .size_full(),
         )
     }

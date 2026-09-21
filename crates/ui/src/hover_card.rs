@@ -302,21 +302,21 @@ impl RenderOnce for HoverCard {
             return root;
         }
 
-        let popover_content =
-            Popover::render_popover_content(self.anchor, self.appearance, window, cx)
-                .overflow_hidden()
-                .on_hover(window.listener_for(&state, |state, hovered, _, cx| {
-                    state.on_content_hover(*hovered, cx);
-                }))
-                .when_some(self.content, |this, content| {
-                    this.child(state.update(cx, |state, cx| (content)(state, window, cx)))
-                })
-                .children(self.children)
-                .refine_style(&self.style);
+        let popover_content = Popover::render_popover_content(self.appearance, window, cx)
+            .overflow_hidden()
+            .on_hover(window.listener_for(&state, |state, hovered, _, cx| {
+                state.on_content_hover(*hovered, cx);
+            }))
+            .when_some(self.content, |this, content| {
+                this.child(state.update(cx, |state, cx| (content)(state, window, cx)))
+            })
+            .children(self.children)
+            .refine_style(&self.style);
 
         root.child(Popover::render_popover(
             self.anchor,
             position,
+            None,
             popover_content,
             window,
             cx,
