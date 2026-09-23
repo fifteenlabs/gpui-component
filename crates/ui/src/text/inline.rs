@@ -6,10 +6,10 @@ use std::{
 };
 
 use gpui::{
-    App, BorderStyle, Bounds, CursorStyle, Edges, Element, ElementId, GlobalElementId, Half,
+    App, BorderStyle, Bounds, CursorStyle, Element, ElementId, GlobalElementId, Half,
     HighlightStyle, Hitbox, HitboxBehavior, InspectorElementId, IntoElement, LayoutId, MouseButton,
     MouseDownEvent, MouseMoveEvent, MouseUpEvent, Pixels, Point, SharedString, StyledText,
-    TextLayout, Window, point, px, quad,
+    TextLayout, Window, fill, point, px,
 };
 
 use crate::{
@@ -183,69 +183,57 @@ impl Inline {
         window: &mut Window,
         cx: &mut App,
     ) {
-        let mut start = selection.start;
-        let mut end = selection.end;
-        if end < start {
-            std::mem::swap(&mut start, &mut end);
-        }
-        let Some(start_position) = text_layout.position_for_index(start) else {
-            return;
-        };
-        let Some(end_position) = text_layout.position_for_index(end) else {
-            return;
-        };
-
+        let start = selection.start.min(selection.end);
+        let end = selection.start.max(selection.end);
         let line_height = text_layout.line_height();
-        if start_position.y == end_position.y {
-            window.paint_quad(quad(
-                Bounds::from_corners(
-                    start_position,
-                    point(end_position.x, end_position.y + line_height),
-                ),
-                px(0.),
-                cx.theme().selection,
-                Edges::default(),
-                gpui::transparent_black(),
-                BorderStyle::default(),
-            ));
-        } else {
-            window.paint_quad(quad(
-                Bounds::from_corners(
-                    start_position,
-                    point(bounds.right(), start_position.y + line_height),
-                ),
-                px(0.),
-                cx.theme().selection,
-                Edges::default(),
-                gpui::transparent_black(),
-                BorderStyle::default(),
-            ));
+        let mut y = bounds.top();
+        let mut line_start_ix = 0;
 
-            if end_position.y > start_position.y + line_height {
-                window.paint_quad(quad(
-                    Bounds::from_corners(
-                        point(bounds.left(), start_position.y + line_height),
-                        point(bounds.right(), end_position.y),
-                    ),
-                    px(0.),
-                    cx.theme().selection,
-                    Edges::default(),
-                    gpui::transparent_black(),
-                    BorderStyle::default(),
-                ));
+        // One quad per wrapped row, clipped to the row's glyphs rather than the element's edge.
+        for line in text_layout.line_layouts() {
+            let layout = &line.unwrapped_layout;
+            let selected = start.saturating_sub(line_start_ix)..end.saturating_sub(line_start_ix);
+            let row_ends = line
+                .wrap_boundaries
+                .iter()
+                .map(|boundary| {
+                    let glyph = &layout.runs[boundary.run_ix].glyphs[boundary.glyph_ix];
+                    (glyph.index, glyph.position.x)
+                })
+                .chain([(line.len(), layout.width)]);
+
+            let (mut row_start, mut row_start_x) = (0, px(0.));
+            for (row_end, row_end_x) in row_ends {
+                let from = selected.start.max(row_start);
+                let to = selected.end.min(row_end);
+                if from < to {
+                    let from_x = if from == row_start {
+                        row_start_x
+                    } else {
+                        layout.x_for_index(from)
+                    };
+                    let to_x = if to == row_end {
+                        row_end_x
+                    } else {
+                        layout.x_for_index(to)
+                    };
+                    let origin_x = bounds.left() - row_start_x;
+                    window.paint_quad(fill(
+                        Bounds::from_corners(
+                            point(origin_x + from_x, y),
+                            point(origin_x + to_x, y + line_height),
+                        ),
+                        cx.theme().selection,
+                    ));
+                }
+                (row_start, row_start_x) = (row_end, row_end_x);
+                y += line_height;
             }
 
-            window.paint_quad(quad(
-                Bounds::from_corners(
-                    point(bounds.left(), end_position.y),
-                    point(end_position.x, end_position.y + line_height),
-                ),
-                px(0.),
-                cx.theme().selection,
-                Edges::default(),
-                gpui::transparent_black(),
-                BorderStyle::default(),
-            ));
+            line_start_ix += line.len() + 1;
+            if line_start_ix > end {
+                break;
+            }
         }
     }
 }
