@@ -14,6 +14,7 @@ use crate::{
     animation::cubic_bezier,
     button::{Button, ButtonVariant, ButtonVariants as _},
     dialog::{DialogContent, DialogTitle},
+    h_flex,
     scroll::ScrollableElement as _,
     v_flex,
 };
@@ -138,6 +139,19 @@ impl DialogButtonProps {
             .into_any_element()
     }
 
+    fn render_close(&self) -> Button {
+        let on_cancel = self.on_cancel.clone();
+        let on_close = self.on_close.clone();
+        Button::new("close")
+            .ghost()
+            .icon(IconName::Close)
+            .on_click(move |_, window, cx| {
+                window.close_dialog(cx);
+                on_cancel(&ClickEvent::default(), window, cx);
+                on_close(&ClickEvent::default(), window, cx);
+            })
+    }
+
     pub(crate) fn render_cancel(&self, _: &mut Window, _: &mut App) -> AnyElement {
         let on_cancel = self.on_cancel.clone();
         let on_close = self.on_close.clone();
@@ -174,6 +188,7 @@ pub(crate) struct DialogProps {
     max_width: Option<Pixels>,
     margin_top: Option<Pixels>,
     close_button: bool,
+    fullscreen: bool,
 
     overlay: bool,
     overlay_closable: bool,
@@ -191,6 +206,7 @@ impl Default for DialogProps {
             keyboard: true,
             overlay_visible: false,
             close_button: true,
+            fullscreen: false,
             overlay_closable: true,
         }
     }
@@ -325,6 +341,17 @@ impl Dialog {
         self
     }
 
+    /// Fill the window instead of floating over it, defaults to `false`.
+    ///
+    /// The dialog ignores its width, top offset and stacking offset, keeps its content inside the
+    /// window's fully visible bounds (safe areas and an on-screen keyboard), slides up from the
+    /// bottom edge, and puts the close button in a bar above the content. There is no overlay left
+    /// to click, so a dialog that an overlay click would close shows the close button too.
+    pub fn fullscreen(mut self, fullscreen: bool) -> Self {
+        self.props.fullscreen = fullscreen;
+        self
+    }
+
     /// Set the top offset of the dialog, defaults to None, will use the 1/10 of the viewport height.
     pub fn margin_top(mut self, margin_top: impl Into<Pixels>) -> Self {
         self.props.margin_top = Some(margin_top.into());
@@ -456,9 +483,15 @@ impl RenderOnce for Dialog {
             origin: Point::default(),
             size: view_size,
         };
-        let offset_top = px(layer_ix as f32 * 16.);
-        let y = self.props.margin_top.unwrap_or(view_size.height / 10.) + offset_top;
-        let x = bounds.center().x - self.props.width / 2.;
+        let fullscreen = self.props.fullscreen;
+        let (x, y, width) = if fullscreen {
+            (px(0.), px(0.), view_size.width)
+        } else {
+            let offset_top = px(layer_ix as f32 * 16.);
+            let y = self.props.margin_top.unwrap_or(view_size.height / 10.) + offset_top;
+            let x = bounds.center().x - self.props.width / 2.;
+            (x, y, self.props.width)
+        };
 
         let base_size = window.text_style().font_size;
         let rem_size = window.rem_size();
@@ -475,6 +508,17 @@ impl RenderOnce for Dialog {
         }
         if let Some(pb) = self.style.padding.bottom {
             paddings.bottom = pb.to_pixels(base_size, rem_size);
+        }
+        let gap = paddings.top.max(px(8.));
+        let closable_by_button =
+            self.props.close_button || (self.props.overlay && self.props.overlay_closable);
+        if fullscreen {
+            let visible = window.fully_visible_bounds();
+            let origin = point(window_paddings.left, window_paddings.top);
+            paddings.top += (visible.top() - origin.y).max(px(0.));
+            paddings.left += (visible.left() - origin.x).max(px(0.));
+            paddings.bottom += (origin.y + view_size.height - visible.bottom()).max(px(0.));
+            paddings.right += (origin.x + view_size.width - visible.right()).max(px(0.));
         }
 
         let animation =
@@ -529,11 +573,16 @@ impl RenderOnce for Dialog {
                             .border_color(cx.theme().border)
                             .rounded(cx.theme().radius_lg)
                             .min_h_24()
-                            .pt(paddings.top)
-                            .pb(paddings.bottom)
-                            .gap(paddings.top.max(px(8.)))
+                            .gap(gap)
                             .refine_style(&self.style)
                             .px_0()
+                            .pt(paddings.top)
+                            .pb(paddings.bottom)
+                            .when(fullscreen, |this| {
+                                this.h(view_size.height)
+                                    .rounded_none()
+                                    .border_0()
+                            })
                             .key_context(CONTEXT)
                             .when(self.props.keyboard, |this| {
                                 this.on_action({
@@ -568,8 +617,18 @@ impl RenderOnce for Dialog {
                             .relative()
                             .left(x)
                             .top(y)
-                            .w(self.props.width)
+                            .w(width)
                             .when_some(self.props.max_width, |this, w| this.max_w(w))
+                            .when(fullscreen && closable_by_button, |this| {
+                                this.child(
+                                    h_flex()
+                                        .flex_shrink_0()
+                                        .justify_end()
+                                        .pl(paddings.left)
+                                        .pr((paddings.right - px(8.)).max(px(8.)))
+                                        .child(self.button_props.render_close()),
+                                )
+                            })
                             .child(
                                 v_flex()
                                     .flex_1()
@@ -618,26 +677,15 @@ impl RenderOnce for Dialog {
                             .when_some(self.footer, |this, footer| {
                                 this.child(div().pl(paddings.left).pr(paddings.right).child(footer))
                             })
-                            .children(self.props.close_button.then(|| {
+                            .children((!fullscreen && self.props.close_button).then(|| {
                                 let top = (paddings.top - px(10.)).max(px(8.));
                                 let right = (paddings.right - px(10.)).max(px(8.));
 
-                                Button::new("close")
+                                div()
                                     .absolute()
                                     .top(top)
                                     .right(right)
-                                    .small()
-                                    .ghost()
-                                    .icon(IconName::Close)
-                                    .on_click({
-                                        let on_cancel = self.button_props.on_cancel.clone();
-                                        let on_close = self.button_props.on_close.clone();
-                                        move |_, window, cx| {
-                                            window.close_dialog(cx);
-                                            on_cancel(&ClickEvent::default(), window, cx);
-                                            on_close(&ClickEvent::default(), window, cx);
-                                        }
-                                    })
+                                    .child(self.button_props.render_close().small())
                             }))
                             .on_any_mouse_down({
                                 |_, _, cx| {
@@ -645,6 +693,9 @@ impl RenderOnce for Dialog {
                                 }
                             })
                             .with_animation("slide-down", animation.clone(), move |this, delta| {
+                                if fullscreen {
+                                    return this.top(view_size.height * (1. - delta));
+                                }
                                 // This is equivalent to `shadow_xl` with an extra opacity.
                                 let shadow = vec![
                                     BoxShadow {
