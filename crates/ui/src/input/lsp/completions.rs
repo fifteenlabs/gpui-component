@@ -1,5 +1,5 @@
 use anyhow::Result;
-use gpui::{Context, EntityInputHandler, Task, Window};
+use gpui::{AnyElement, App, Context, EntityInputHandler, Task, Window};
 use lsp_types::{
     CompletionContext, CompletionItem, CompletionResponse, InlineCompletionContext,
     InlineCompletionItem, InlineCompletionResponse, InlineCompletionTriggerKind,
@@ -74,6 +74,19 @@ pub trait CompletionProvider {
         _: &mut Context<InputState>,
     ) -> Task<Result<bool>> {
         Task::ready(Ok(false))
+    }
+
+    /// Renders an element shown before the label of a completion item, such as an icon
+    /// or an avatar.
+    ///
+    /// Default: no element.
+    fn render_item_prefix(
+        &self,
+        _item: &CompletionItem,
+        _window: &mut Window,
+        _cx: &mut App,
+    ) -> Option<AnyElement> {
+        None
     }
 
     /// Determines if the completion should be triggered based on the given byte offset.

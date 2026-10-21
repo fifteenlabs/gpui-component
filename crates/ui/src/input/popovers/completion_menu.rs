@@ -44,6 +44,7 @@ impl ContextMenuDelegate {
 struct CompletionMenuItem {
     ix: usize,
     item: Rc<CompletionItem>,
+    prefix: Option<AnyElement>,
     children: Vec<AnyElement>,
     selected: bool,
     highlight_prefix: SharedString,
@@ -54,10 +55,16 @@ impl CompletionMenuItem {
         Self {
             ix,
             item,
+            prefix: None,
             children: vec![],
             selected: false,
             highlight_prefix: "".into(),
         }
+    }
+
+    fn prefix(mut self, prefix: Option<AnyElement>) -> Self {
+        self.prefix = prefix;
+        self
     }
 
     fn highlight_prefix(mut self, s: impl Into<SharedString>) -> Self {
@@ -114,6 +121,7 @@ impl RenderOnce for CompletionMenuItem {
                 this.bg(cx.theme().accent)
                     .text_color(cx.theme().accent_foreground)
             })
+            .children(self.prefix)
             .child(div().child(StyledText::new(item.label.clone()).with_highlights(highlights)))
             .when(item.detail.is_some(), |this| {
                 this.child(
@@ -139,11 +147,24 @@ impl ListDelegate for ContextMenuDelegate {
     fn render_item(
         &mut self,
         ix: crate::IndexPath,
-        _: &mut Window,
-        _: &mut Context<ListState<Self>>,
+        window: &mut Window,
+        cx: &mut Context<ListState<Self>>,
     ) -> Option<Self::Item> {
         let item = self.items.get(ix.row)?;
-        Some(CompletionMenuItem::new(ix.row, item.clone()).highlight_prefix(self.query.clone()))
+        let provider = self
+            .menu
+            .read(cx)
+            .editor
+            .read(cx)
+            .lsp
+            .completion_provider
+            .clone();
+        let prefix = provider.and_then(|provider| provider.render_item_prefix(item, window, cx));
+        Some(
+            CompletionMenuItem::new(ix.row, item.clone())
+                .prefix(prefix)
+                .highlight_prefix(self.query.clone()),
+        )
     }
 
     fn set_selected_index(
