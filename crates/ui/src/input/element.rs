@@ -1275,7 +1275,13 @@ impl TextElement {
                 diagnostics,
                 ..
             } => (highlighter.borrow_mut(), diagnostics),
-            _ => return None,
+            _ => {
+                let highlighter = state.text_highlighter.as_ref()?;
+                return Some(text_highlights(
+                    &highlighter(&text.to_string(), cx),
+                    visible_byte_range,
+                ));
+            }
         };
         let highlighter = highlighter.as_mut()?;
 
@@ -1358,6 +1364,32 @@ impl TextElement {
 
         Some(styles)
     }
+}
+
+fn text_highlights(
+    highlights: &[(Range<usize>, HighlightStyle)],
+    visible: Range<usize>,
+) -> Vec<(Range<usize>, HighlightStyle)> {
+    let mut sorted: Vec<&(Range<usize>, HighlightStyle)> = highlights.iter().collect();
+    sorted.sort_by_key(|(range, _)| range.start);
+    let mut styles = Vec::with_capacity(sorted.len() * 2 + 1);
+    let mut offset = visible.start;
+    for (range, style) in sorted {
+        let start = range.start.max(offset);
+        let end = range.end.min(visible.end);
+        if start >= end {
+            continue;
+        }
+        if start > offset {
+            styles.push((offset..start, HighlightStyle::default()));
+        }
+        styles.push((start..end, *style));
+        offset = end;
+    }
+    if offset < visible.end {
+        styles.push((offset..visible.end, HighlightStyle::default()));
+    }
+    styles
 }
 
 pub(super) struct PrepaintState {
