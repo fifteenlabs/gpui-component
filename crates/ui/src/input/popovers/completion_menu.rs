@@ -9,6 +9,7 @@ use gpui::{
 use lsp_types::{CompletionItem, CompletionTextEdit};
 
 const MAX_MENU_WIDTH: Pixels = px(320.);
+const MIN_MENU_WIDTH: Pixels = px(120.);
 const MAX_MENU_HEIGHT: Pixels = px(240.);
 const POPOVER_GAP: Pixels = px(4.);
 
@@ -447,12 +448,14 @@ impl Render for CompletionMenu {
             .selected_item()
             .and_then(|item| item.documentation.clone());
 
-        let menu_width = self
-            .editor
-            .read(cx)
+        let editor = self.editor.read(cx);
+        let min_width = editor.completion_menu_min_width.unwrap_or(MIN_MENU_WIDTH);
+        let menu_width = editor
             .completion_menu_max_width
-            .unwrap_or(MAX_MENU_WIDTH);
+            .unwrap_or(MAX_MENU_WIDTH)
+            .max(min_width);
         let max_width = menu_width.min(window.bounds().size.width - pos.x);
+        let min_width = min_width.min(max_width);
         let abs_pos = self.editor.read(cx).input_bounds.origin + pos;
         let vertical_layout = abs_pos.x + menu_width + POPOVER_GAP + MAX_MENU_WIDTH + POPOVER_GAP
             > window.bounds().size.width;
@@ -476,7 +479,7 @@ impl Render for CompletionMenu {
                         .child(
                             editor_popover("completion-menu", cx)
                                 .max_w(max_width)
-                                .min_w(px(120.))
+                                .min_w(min_width)
                                 .child(List::new(&self.list).max_h(MAX_MENU_HEIGHT)),
                         )
                         .when_some(selected_documentation, |this, documentation| {
