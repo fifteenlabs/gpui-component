@@ -11,7 +11,7 @@ use gpui::{
     Subscription, Task, UTF16Selection, Window, actions, div, point, prelude::FluentBuilder as _,
     px,
 };
-use gpui::{Half, TextAlign};
+use gpui::{Half, HighlightStyle, TextAlign};
 use ropey::{Rope, RopeSlice};
 use serde::Deserialize;
 use std::cell::Cell;
@@ -128,6 +128,8 @@ pub enum InputEvent {
 }
 
 pub(super) const CONTEXT: &str = "Input";
+
+pub(super) type TextHighlighter = Rc<dyn Fn(&str, &App) -> Vec<(Range<usize>, HighlightStyle)>>;
 
 pub(crate) fn init(cx: &mut App) {
     cx.bind_keys([
@@ -390,6 +392,11 @@ pub struct InputState {
     pub(crate) mask_pattern: MaskPattern,
     pub(super) placeholder: SharedString,
 
+    /// Styles for ranges of the text in modes without a syntax highlighter.
+    pub(super) text_highlighter: Option<TextHighlighter>,
+    /// The maximum width of the completion menu.
+    pub(super) completion_menu_max_width: Option<Pixels>,
+
     /// Popover
     diagnostic_popover: Option<Entity<DiagnosticPopover>>,
     /// Completion/CodeAction context menu
@@ -509,6 +516,8 @@ impl InputState {
             deferred_scroll_offset: None,
             preferred_column: None,
             placeholder: SharedString::default(),
+            text_highlighter: None,
+            completion_menu_max_width: None,
             mask_pattern: MaskPattern::default(),
             text_align: TextAlign::Left,
             lsp: Lsp::default(),
@@ -593,6 +602,27 @@ impl InputState {
     /// Set placeholder
     pub fn placeholder(mut self, placeholder: impl Into<SharedString>) -> Self {
         self.placeholder = placeholder.into();
+        self
+    }
+
+    /// Style ranges of the text, for inputs that are not a [`InputMode::CodeEditor`].
+    ///
+    /// The highlighter is called with the whole text each time the input is painted,
+    /// and returns byte ranges with the style to apply to each. Ranges may leave gaps,
+    /// which keep the default style, and are clipped to the text.
+    pub fn text_highlighter(
+        mut self,
+        highlighter: impl Fn(&str, &App) -> Vec<(Range<usize>, HighlightStyle)> + 'static,
+    ) -> Self {
+        self.text_highlighter = Some(Rc::new(highlighter));
+        self
+    }
+
+    /// Set the maximum width of the completion menu.
+    ///
+    /// Default: 320px
+    pub fn completion_menu_max_width(mut self, width: impl Into<Pixels>) -> Self {
+        self.completion_menu_max_width = Some(width.into());
         self
     }
 

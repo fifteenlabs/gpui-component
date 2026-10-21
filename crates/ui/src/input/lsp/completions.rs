@@ -1,5 +1,5 @@
 use anyhow::Result;
-use gpui::{Context, EntityInputHandler, Task, Window};
+use gpui::{AnyElement, App, Context, EntityInputHandler, Pixels, Task, Window};
 use lsp_types::{
     CompletionContext, CompletionItem, CompletionResponse, InlineCompletionContext,
     InlineCompletionItem, InlineCompletionResponse, InlineCompletionTriggerKind,
@@ -74,6 +74,27 @@ pub trait CompletionProvider {
         _: &mut Context<InputState>,
     ) -> Task<Result<bool>> {
         Task::ready(Ok(false))
+    }
+
+    /// Renders an element shown before the label of a completion item, such as an icon
+    /// or an avatar.
+    ///
+    /// Default: no element.
+    fn render_item_prefix(
+        &self,
+        _item: &CompletionItem,
+        _window: &mut Window,
+        _cx: &mut App,
+    ) -> Option<AnyElement> {
+        None
+    }
+
+    /// The minimum width of the completion menu while it shows `items`, for
+    /// suggestions that need more room than their widest row.
+    ///
+    /// Default: 120px
+    fn menu_min_width(&self, _items: &[Rc<CompletionItem>], _cx: &App) -> Option<Pixels> {
+        None
     }
 
     /// Determines if the completion should be triggered based on the given byte offset.

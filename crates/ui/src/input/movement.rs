@@ -156,6 +156,7 @@ impl InputState {
 
     pub(super) fn up(&mut self, action: &MoveUp, window: &mut Window, cx: &mut Context<Self>) {
         if self.handle_action_for_context_menu(Box::new(action.clone()), window, cx) {
+            cx.stop_propagation();
             return;
         }
 
@@ -200,10 +201,12 @@ impl InputState {
 
     pub(super) fn down(&mut self, action: &MoveDown, window: &mut Window, cx: &mut Context<Self>) {
         if self.handle_action_for_context_menu(Box::new(action.clone()), window, cx) {
+            cx.stop_propagation();
             return;
         }
 
         if self.mode.is_single_line() {
+            cx.propagate();
             return;
         }
 

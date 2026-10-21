@@ -1275,7 +1275,13 @@ impl TextElement {
                 diagnostics,
                 ..
             } => (highlighter.borrow_mut(), diagnostics),
-            _ => return None,
+            _ => {
+                let highlighter = state.text_highlighter.as_ref()?;
+                return Some(text_highlights(
+                    highlighter(&text.to_string(), cx),
+                    visible_byte_range,
+                ));
+            }
         };
         let highlighter = highlighter.as_mut()?;
 
@@ -1358,6 +1364,18 @@ impl TextElement {
 
         Some(styles)
     }
+}
+
+fn text_highlights(
+    highlights: Vec<(Range<usize>, HighlightStyle)>,
+    visible: Range<usize>,
+) -> Vec<(Range<usize>, HighlightStyle)> {
+    let (start, end) = (visible.start, visible.end);
+    let clipped = highlights.into_iter().filter_map(move |(range, style)| {
+        let range = range.start.max(start)..range.end.min(end);
+        (!range.is_empty()).then_some((range, style))
+    });
+    gpui::combine_highlights([(visible, HighlightStyle::default())], clipped).collect()
 }
 
 pub(super) struct PrepaintState {

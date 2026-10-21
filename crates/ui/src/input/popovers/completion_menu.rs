@@ -9,7 +9,9 @@ use gpui::{
 use lsp_types::{CompletionItem, CompletionTextEdit};
 
 const MAX_MENU_WIDTH: Pixels = px(320.);
+const MIN_MENU_WIDTH: Pixels = px(120.);
 const MAX_MENU_HEIGHT: Pixels = px(240.);
+const TRIGGER_SUGGEST: &str = "editor.action.triggerSuggest";
 const POPOVER_GAP: Pixels = px(4.);
 
 use crate::{
@@ -44,6 +46,7 @@ impl ContextMenuDelegate {
 struct CompletionMenuItem {
     ix: usize,
     item: Rc<CompletionItem>,
+    prefix: Option<AnyElement>,
     children: Vec<AnyElement>,
     selected: bool,
     highlight_prefix: SharedString,
@@ -54,10 +57,16 @@ impl CompletionMenuItem {
         Self {
             ix,
             item,
+            prefix: None,
             children: vec![],
             selected: false,
             highlight_prefix: "".into(),
         }
+    }
+
+    fn prefix(mut self, prefix: Option<AnyElement>) -> Self {
+        self.prefix = prefix;
+        self
     }
 
     fn highlight_prefix(mut self, s: impl Into<SharedString>) -> Self {
@@ -114,6 +123,7 @@ impl RenderOnce for CompletionMenuItem {
                 this.bg(cx.theme().accent)
                     .text_color(cx.theme().accent_foreground)
             })
+            .children(self.prefix)
             .child(div().child(StyledText::new(item.label.clone()).with_highlights(highlights)))
             .when(item.detail.is_some(), |this| {
                 this.child(
@@ -139,11 +149,24 @@ impl ListDelegate for ContextMenuDelegate {
     fn render_item(
         &mut self,
         ix: crate::IndexPath,
-        _: &mut Window,
-        _: &mut Context<ListState<Self>>,
+        window: &mut Window,
+        cx: &mut Context<ListState<Self>>,
     ) -> Option<Self::Item> {
         let item = self.items.get(ix.row)?;
-        Some(CompletionMenuItem::new(ix.row, item.clone()).highlight_prefix(self.query.clone()))
+        let provider = self
+            .menu
+            .read(cx)
+            .editor
+            .read(cx)
+            .lsp
+            .completion_provider
+            .clone();
+        let prefix = provider.and_then(|provider| provider.render_item_prefix(item, window, cx));
+        Some(
+            CompletionMenuItem::new(ix.row, item.clone())
+                .prefix(prefix)
+                .highlight_prefix(self.query.clone()),
+        )
     }
 
     fn set_selected_index(
@@ -229,6 +252,10 @@ impl CompletionMenu {
         let offset = self.offset;
         let item = item.clone();
         let mut range = self.trigger_start_offset.unwrap_or(self.offset)..self.offset;
+        let retrigger = item
+            .command
+            .as_ref()
+            .is_some_and(|command| command.command == TRIGGER_SUGGEST);
 
         let editor = self.editor.clone();
 
@@ -262,6 +289,10 @@ impl CompletionMenu {
                     cx,
                 );
                 editor.completion_inserting = false;
+                if retrigger {
+                    let end = range.start + new_text.len();
+                    editor.handle_completion_trigger(&(end..end), &new_text, window, cx);
+                }
                 // FIXME: Input not get the focus
                 editor.focus(window, cx);
             })
@@ -426,11 +457,22 @@ impl Render for CompletionMenu {
             .selected_item()
             .and_then(|item| item.documentation.clone());
 
-        let max_width = MAX_MENU_WIDTH.min(window.bounds().size.width - pos.x);
+        let editor = self.editor.read(cx);
+        let min_width = editor
+            .lsp
+            .completion_provider
+            .as_ref()
+            .and_then(|provider| provider.menu_min_width(&self.list.read(cx).delegate().items, cx))
+            .unwrap_or(MIN_MENU_WIDTH);
+        let menu_width = editor
+            .completion_menu_max_width
+            .unwrap_or(MAX_MENU_WIDTH)
+            .max(min_width);
+        let max_width = menu_width.min(window.bounds().size.width - pos.x);
+        let min_width = min_width.min(max_width);
         let abs_pos = self.editor.read(cx).input_bounds.origin + pos;
-        let vertical_layout =
-            abs_pos.x + MAX_MENU_WIDTH + POPOVER_GAP + MAX_MENU_WIDTH + POPOVER_GAP
-                > window.bounds().size.width;
+        let vertical_layout = abs_pos.x + menu_width + POPOVER_GAP + MAX_MENU_WIDTH + POPOVER_GAP
+            > window.bounds().size.width;
 
         deferred(
             anchored()
@@ -451,7 +493,7 @@ impl Render for CompletionMenu {
                         .child(
                             editor_popover("completion-menu", cx)
                                 .max_w(max_width)
-                                .min_w(px(120.))
+                                .min_w(min_width)
                                 .child(List::new(&self.list).max_h(MAX_MENU_HEIGHT)),
                         )
                         .when_some(selected_documentation, |this, documentation| {
