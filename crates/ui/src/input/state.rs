@@ -396,8 +396,6 @@ pub struct InputState {
     pub(super) text_highlighter: Option<TextHighlighter>,
     /// The maximum width of the completion menu.
     pub(super) completion_menu_max_width: Option<Pixels>,
-    /// The minimum width of the completion menu.
-    pub(super) completion_menu_min_width: Option<Pixels>,
 
     /// Popover
     diagnostic_popover: Option<Entity<DiagnosticPopover>>,
@@ -520,7 +518,6 @@ impl InputState {
             placeholder: SharedString::default(),
             text_highlighter: None,
             completion_menu_max_width: None,
-            completion_menu_min_width: None,
             mask_pattern: MaskPattern::default(),
             text_align: TextAlign::Left,
             lsp: Lsp::default(),
@@ -627,17 +624,6 @@ impl InputState {
     pub fn completion_menu_max_width(mut self, width: impl Into<Pixels>) -> Self {
         self.completion_menu_max_width = Some(width.into());
         self
-    }
-
-    /// Set the minimum width of the completion menu, for example to give some
-    /// suggestions more room than their widest row needs.
-    ///
-    /// Default: 120px
-    pub fn set_completion_menu_min_width(&mut self, width: Option<Pixels>, cx: &mut Context<Self>) {
-        if self.completion_menu_min_width != width {
-            self.completion_menu_min_width = width;
-            cx.notify();
-        }
     }
 
     /// Set enable/disable code folding, only for [`InputMode::CodeEditor`] mode.

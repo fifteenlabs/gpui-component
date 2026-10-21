@@ -1,5 +1,5 @@
 use anyhow::Result;
-use gpui::{AnyElement, App, Context, EntityInputHandler, Task, Window};
+use gpui::{AnyElement, App, Context, EntityInputHandler, Pixels, Task, Window};
 use lsp_types::{
     CompletionContext, CompletionItem, CompletionResponse, InlineCompletionContext,
     InlineCompletionItem, InlineCompletionResponse, InlineCompletionTriggerKind,
@@ -86,6 +86,14 @@ pub trait CompletionProvider {
         _window: &mut Window,
         _cx: &mut App,
     ) -> Option<AnyElement> {
+        None
+    }
+
+    /// The minimum width of the completion menu while it shows `items`, for
+    /// suggestions that need more room than their widest row.
+    ///
+    /// Default: 120px
+    fn menu_min_width(&self, _items: &[Rc<CompletionItem>], _cx: &App) -> Option<Pixels> {
         None
     }
 

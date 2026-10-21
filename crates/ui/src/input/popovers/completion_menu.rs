@@ -11,6 +11,7 @@ use lsp_types::{CompletionItem, CompletionTextEdit};
 const MAX_MENU_WIDTH: Pixels = px(320.);
 const MIN_MENU_WIDTH: Pixels = px(120.);
 const MAX_MENU_HEIGHT: Pixels = px(240.);
+const TRIGGER_SUGGEST: &str = "editor.action.triggerSuggest";
 const POPOVER_GAP: Pixels = px(4.);
 
 use crate::{
@@ -251,6 +252,10 @@ impl CompletionMenu {
         let offset = self.offset;
         let item = item.clone();
         let mut range = self.trigger_start_offset.unwrap_or(self.offset)..self.offset;
+        let retrigger = item
+            .command
+            .as_ref()
+            .is_some_and(|command| command.command == TRIGGER_SUGGEST);
 
         let editor = self.editor.clone();
 
@@ -284,6 +289,10 @@ impl CompletionMenu {
                     cx,
                 );
                 editor.completion_inserting = false;
+                if retrigger {
+                    let end = range.start + new_text.len();
+                    editor.handle_completion_trigger(&(end..end), &new_text, window, cx);
+                }
                 // FIXME: Input not get the focus
                 editor.focus(window, cx);
             })
@@ -449,7 +458,12 @@ impl Render for CompletionMenu {
             .and_then(|item| item.documentation.clone());
 
         let editor = self.editor.read(cx);
-        let min_width = editor.completion_menu_min_width.unwrap_or(MIN_MENU_WIDTH);
+        let min_width = editor
+            .lsp
+            .completion_provider
+            .as_ref()
+            .and_then(|provider| provider.menu_min_width(&self.list.read(cx).delegate().items, cx))
+            .unwrap_or(MIN_MENU_WIDTH);
         let menu_width = editor
             .completion_menu_max_width
             .unwrap_or(MAX_MENU_WIDTH)

@@ -301,9 +301,9 @@ impl RenderOnce for Input {
                     .on_action(window.listener_for(&self.state, InputState::cut))
                     .on_action(window.listener_for(&self.state, InputState::undo))
                     .on_action(window.listener_for(&self.state, InputState::redo))
+                    .on_action(window.listener_for(&self.state, InputState::indent_inline))
                     .when(state.mode.is_multi_line(), |this| {
-                        this.on_action(window.listener_for(&self.state, InputState::indent_inline))
-                            .on_action(window.listener_for(&self.state, InputState::outdent_inline))
+                        this.on_action(window.listener_for(&self.state, InputState::outdent_inline))
                             .on_action(window.listener_for(&self.state, InputState::indent_block))
                             .on_action(window.listener_for(&self.state, InputState::outdent_block))
                     })
@@ -315,10 +315,10 @@ impl RenderOnce for Input {
             .on_action(window.listener_for(&self.state, InputState::right))
             .on_action(window.listener_for(&self.state, InputState::select_left))
             .on_action(window.listener_for(&self.state, InputState::select_right))
+            .on_action(window.listener_for(&self.state, InputState::up))
+            .on_action(window.listener_for(&self.state, InputState::down))
             .when(state.mode.is_multi_line(), |this| {
                 let result = this
-                    .on_action(window.listener_for(&self.state, InputState::up))
-                    .on_action(window.listener_for(&self.state, InputState::down))
                     .on_action(window.listener_for(&self.state, InputState::select_up))
                     .on_action(window.listener_for(&self.state, InputState::select_down))
                     .on_action(window.listener_for(&self.state, InputState::page_up))
