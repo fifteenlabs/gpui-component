@@ -111,6 +111,9 @@ impl VirtualListScrollHandle {
             offset,
             scroll_strict: false,
         });
+        // The list scrolls to the item as it is laid out: have its view laid
+        // out again though nothing it read changed.
+        self.base_handle.mark_changed();
     }
 
     /// Scrolls to the bottom of the list.

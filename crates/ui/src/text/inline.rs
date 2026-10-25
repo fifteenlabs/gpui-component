@@ -13,8 +13,8 @@ use gpui::{
 };
 
 use crate::{
-    ActiveTheme, global_state::GlobalState, input::Selection, text::TextViewMultiClickKind,
-    text::node::LinkMark, text::selection::word_range_at,
+    ActiveTheme, input::Selection, text::TextViewMultiClickKind, text::node::LinkMark,
+    text::painting_text_view_state, text::selection::word_range_at,
 };
 
 /// A inline element used to render a inline text and support selectable.
@@ -104,7 +104,7 @@ impl Inline {
         window: &mut Window,
         cx: &mut App,
     ) -> (bool, bool, Option<Selection>) {
-        let Some(text_view_state) = GlobalState::global(cx).text_view_state() else {
+        let Some(text_view_state) = painting_text_view_state() else {
             return (false, false, None);
         };
 
@@ -350,7 +350,7 @@ impl Element for Inline {
                 let text_layout = text_layout.clone();
                 let inline_state = self.state.clone();
                 let text = self.text.clone();
-                let text_view_state = GlobalState::global(cx).text_view_state().cloned();
+                let text_view_state = painting_text_view_state();
 
                 move |event: &MouseDownEvent, phase, window, cx| {
                     if !phase.bubble()
@@ -417,7 +417,7 @@ impl Element for Inline {
                 let links = self.links.clone();
                 let text_layout = text_layout.clone();
                 let hitbox = hitbox.clone();
-                let text_view_state = GlobalState::global(cx).text_view_state().cloned();
+                let text_view_state = painting_text_view_state();
 
                 move |event: &MouseUpEvent, phase, window, cx| {
                     if !phase.bubble() || !hitbox.is_hovered(window) {
