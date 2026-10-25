@@ -19,6 +19,9 @@ use crate::{
 
 struct TabIndicatorBounds {
     container: Bounds<Pixels>,
+    /// The container's left edge before the last prepaint, which the tabs'
+    /// bounds from then are relative to.
+    last_container_left: Pixels,
     tabs: Vec<Bounds<Pixels>>,
 }
 
@@ -26,6 +29,7 @@ impl TabIndicatorBounds {
     fn new(num_tabs: usize) -> Self {
         Self {
             container: Bounds::default(),
+            last_container_left: px(0.),
             tabs: vec![Bounds::default(); num_tabs],
         }
     }
@@ -33,6 +37,32 @@ impl TabIndicatorBounds {
     fn resize(&mut self, num_tabs: usize) {
         self.tabs.resize(num_tabs, Bounds::default());
     }
+
+    /// Records the container's bounds, returning whether its width changed.
+    fn set_container(&mut self, bounds: Bounds<Pixels>) -> bool {
+        self.last_container_left = self.container.origin.x;
+        let changed = self.container.size.width != bounds.size.width;
+        self.container = bounds;
+        changed
+    }
+
+    /// Records a tab's bounds, returning whether its width or its place in
+    /// the container changed, which moves the indicator.
+    fn set_tab(&mut self, ix: usize, bounds: Bounds<Pixels>) -> bool {
+        let Some(slot) = self.tabs.get_mut(ix) else {
+            return false;
+        };
+        let was = (slot.origin.x - self.last_container_left, slot.size.width);
+        let now = (bounds.origin.x - self.container.origin.x, bounds.size.width);
+        *slot = bounds;
+        was != now
+    }
+}
+
+/// Notifies the view being drawn, for it to render the indicator again from
+/// bounds a prepaint just measured: nothing else renders it again.
+fn notify_current_view(window: &mut Window, cx: &mut App) {
+    cx.notify(window.current_view());
 }
 
 /// A TabBar element that contains multiple [`Tab`] items.
@@ -384,7 +414,8 @@ impl RenderOnce for TabBar {
         let num_tabs = self.children.len();
 
         // Bounds tracking for tab indicator animation.
-        // Uses Rc<RefCell> to avoid triggering re-renders from prepaint writes.
+        // Uses Rc<RefCell> so that prepaint writes re-render only when they move
+        // the indicator.
         let bounds_rc = if has_indicator && num_tabs > 0 {
             let rc: Rc<RefCell<TabIndicatorBounds>> = window
                 .use_keyed_state(format!("{}-tab-bounds", self.id), cx, |_, _| {
@@ -443,8 +474,10 @@ impl RenderOnce for TabBar {
                             this.track_scroll(&scroll_handle)
                         })
                         .when_some(bounds_rc.clone(), |this, rc| {
-                            this.on_prepaint(move |bounds, _, _| {
-                                rc.borrow_mut().container = bounds;
+                            this.on_prepaint(move |bounds, window, cx| {
+                                if rc.borrow_mut().set_container(bounds) {
+                                    notify_current_view(window, cx);
+                                }
                             })
                         })
                         .when_some(indicator_element, |this, ind| this.child(ind))
@@ -473,9 +506,9 @@ impl RenderOnce for TabBar {
                             if let Some(ref rc) = bounds_rc {
                                 let rc = rc.clone();
                                 div()
-                                    .on_prepaint(move |bounds, _, _| {
-                                        if let Some(slot) = rc.borrow_mut().tabs.get_mut(ix) {
-                                            *slot = bounds;
+                                    .on_prepaint(move |bounds, window, cx| {
+                                        if rc.borrow_mut().set_tab(ix, bounds) {
+                                            notify_current_view(window, cx);
                                         }
                                     })
                                     .child(tab)

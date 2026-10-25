@@ -477,6 +477,7 @@ impl NotificationList {
             cx.subscribe(&notification, move |view, _, _: &DismissEvent, cx| {
                 view.notifications.retain(|note| id != note.read(cx).id);
                 view._subscriptions.remove(&id);
+                cx.notify();
             }),
         );
 

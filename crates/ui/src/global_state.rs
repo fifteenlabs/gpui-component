@@ -1,8 +1,6 @@
-use gpui::{
-    App, Bounds, Entity, FocusHandle, Global, OwnedMenu, Pixels, Point, WeakFocusHandle, Window,
-};
+use std::cell::Cell;
 
-use crate::text::TextViewState;
+use gpui::{App, Bounds, FocusHandle, Global, OwnedMenu, Pixels, Point, WeakFocusHandle, Window};
 
 /// An open popover that renders its content through `deferred`.
 ///
@@ -14,7 +12,9 @@ use crate::text::TextViewState;
 /// believing a popover is open forever.
 struct DeferredPopover {
     focus_handle: WeakFocusHandle,
-    bounds: Bounds<Pixels>,
+    /// Written as the content is prepainted, every frame, without taking the
+    /// global mutably: that would mark it changed for every view reading it.
+    bounds: Cell<Bounds<Pixels>>,
 }
 
 pub(crate) fn init(cx: &mut App) {
@@ -24,7 +24,6 @@ pub(crate) fn init(cx: &mut App) {
 impl Global for GlobalState {}
 
 pub struct GlobalState {
-    pub(crate) text_view_state_stack: Vec<Entity<TextViewState>>,
     /// Open popovers that use deferred rendering.
     /// When this list is not empty, we are inside at least one deferred context.
     /// This is used to prevent double-deferred elements which would cause GPUI to panic.
@@ -36,7 +35,6 @@ pub struct GlobalState {
 impl GlobalState {
     pub(crate) fn new() -> Self {
         Self {
-            text_view_state_stack: Vec::new(),
             open_deferred_popovers: Vec::new(),
             app_menus: Vec::new(),
         }
@@ -48,10 +46,6 @@ impl GlobalState {
 
     pub fn global_mut(cx: &mut App) -> &mut Self {
         cx.global_mut::<Self>()
-    }
-
-    pub(crate) fn text_view_state(&self) -> Option<&Entity<TextViewState>> {
-        self.text_view_state_stack.last()
     }
 
     /// Check if we are currently inside a deferred context (e.g., inside an open Popover).
@@ -73,7 +67,7 @@ impl GlobalState {
         }
         self.open_deferred_popovers.push(DeferredPopover {
             focus_handle: focus_handle.downgrade(),
-            bounds: Bounds::default(),
+            bounds: Cell::new(Bounds::default()),
         });
     }
 
@@ -88,12 +82,12 @@ impl GlobalState {
     /// An ancestor popover reads it to tell a click inside a nested popover from
     /// a click outside everything.
     pub(crate) fn set_deferred_popover_bounds(
-        &mut self,
+        &self,
         focus_handle: &FocusHandle,
         bounds: Bounds<Pixels>,
     ) {
-        if let Some(popover) = self.deferred_popover_mut(focus_handle) {
-            popover.bounds = bounds;
+        if let Some(popover) = self.deferred_popover(focus_handle) {
+            popover.bounds.set(bounds);
         }
     }
 
@@ -112,7 +106,7 @@ impl GlobalState {
     ) -> bool {
         self.open_deferred_popovers.iter().any(|popover| {
             popover.focus_handle != *ancestor
-                && popover.bounds.contains(position)
+                && popover.bounds.get().contains(position)
                 && popover
                     .focus_handle
                     .upgrade()
@@ -123,12 +117,6 @@ impl GlobalState {
     fn deferred_popover(&self, focus_handle: &FocusHandle) -> Option<&DeferredPopover> {
         self.open_deferred_popovers
             .iter()
-            .find(|popover| popover.focus_handle == *focus_handle)
-    }
-
-    fn deferred_popover_mut(&mut self, focus_handle: &FocusHandle) -> Option<&mut DeferredPopover> {
-        self.open_deferred_popovers
-            .iter_mut()
             .find(|popover| popover.focus_handle == *focus_handle)
     }
 

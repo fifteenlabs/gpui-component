@@ -1618,7 +1618,14 @@ where
                                 .border_color(cx.theme().border),
                         )
                         .on_prepaint(move |bounds, _, cx| {
-                            view.update(cx, |r, _| r.fixed_head_cols_bounds = bounds)
+                            view.update(cx, |r, cx| {
+                                // The header's visible columns are rendered
+                                // from this width.
+                                if r.fixed_head_cols_bounds.size.width != bounds.size.width {
+                                    cx.notify();
+                                }
+                                r.fixed_head_cols_bounds = bounds;
+                            })
                         }),
                 )
             })
@@ -2310,7 +2317,16 @@ where
             })
             .on_prepaint({
                 let state = cx.entity();
-                move |bounds, _, cx| state.update(cx, |state, _| state.bounds = bounds)
+                move |bounds, _, cx| {
+                    state.update(cx, |state, cx| {
+                        // The header's visible columns are rendered from this
+                        // width.
+                        if state.bounds.size.width != bounds.size.width {
+                            cx.notify();
+                        }
+                        state.bounds = bounds;
+                    })
+                }
             })
             .when(!window.is_inspector_picking(cx), |this| {
                 this.child(

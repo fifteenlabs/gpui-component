@@ -1,3 +1,4 @@
+use std::cell::RefCell;
 use std::sync::Arc;
 
 use gpui::prelude::FluentBuilder as _;
@@ -11,9 +12,22 @@ use gpui::{
 use crate::StyledExt;
 use crate::scroll::{AutoScroll, ScrollableElement};
 use crate::text::TextViewFormat;
+use crate::text::TextViewStyle;
 use crate::text::node::CodeBlock;
 use crate::text::state::TextViewState;
-use crate::{global_state::GlobalState, text::TextViewStyle};
+
+thread_local! {
+    /// The states of the text views being painted, innermost last. It is not
+    /// a global: a text view paints every frame, and writing a global marks it
+    /// changed for every view that reads it.
+    static PAINTING_TEXT_VIEWS: RefCell<Vec<Entity<TextViewState>>> =
+        const { RefCell::new(Vec::new()) };
+}
+
+/// The state of the text view being painted, if any.
+pub(crate) fn painting_text_view_state() -> Option<Entity<TextViewState>> {
+    PAINTING_TEXT_VIEWS.with_borrow(|states| states.last().cloned())
+}
 
 /// Type for code block actions generator function.
 pub(crate) type CodeBlockActionsFn =
@@ -270,11 +284,9 @@ impl Element for TextView {
         cx: &mut App,
     ) {
         let state = &request_layout.state;
-        GlobalState::global_mut(cx)
-            .text_view_state_stack
-            .push(state.clone());
+        PAINTING_TEXT_VIEWS.with_borrow_mut(|states| states.push(state.clone()));
         request_layout.element.paint(window, cx);
-        GlobalState::global_mut(cx).text_view_state_stack.pop();
+        PAINTING_TEXT_VIEWS.with_borrow_mut(|states| states.pop());
 
         if self.selectable {
             let is_selecting = state.read(cx).is_selecting;

@@ -479,7 +479,7 @@ impl RenderOnce for Popover {
             .on_prepaint({
                 let focus_handle = focus_handle.clone();
                 move |bounds, _, cx| {
-                    GlobalState::global_mut(cx).set_deferred_popover_bounds(&focus_handle, bounds);
+                    GlobalState::global(cx).set_deferred_popover_bounds(&focus_handle, bounds);
                 }
             })
             .when(self.overlay_closable, |this| {
