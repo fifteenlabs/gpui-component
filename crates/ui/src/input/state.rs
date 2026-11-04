@@ -132,6 +132,15 @@ pub(super) const CONTEXT: &str = "Input";
 pub(super) type TextHighlighter = Rc<dyn Fn(&str, &App) -> Vec<(Range<usize>, HighlightStyle)>>;
 
 pub(crate) fn init(cx: &mut App) {
+    let secondary_enter = crate::actions::secondary_binding(
+        "secondary-enter",
+        Enter {
+            secondary: true,
+            shift: false,
+        },
+        Some(CONTEXT),
+        cx,
+    );
     cx.bind_keys([
         KeyBinding::new("backspace", Backspace, Some(CONTEXT)),
         KeyBinding::new("shift-backspace", Backspace, Some(CONTEXT)),
@@ -167,14 +176,7 @@ pub(crate) fn init(cx: &mut App) {
             },
             Some(CONTEXT),
         ),
-        KeyBinding::new(
-            "secondary-enter",
-            Enter {
-                secondary: true,
-                shift: false,
-            },
-            Some(CONTEXT),
-        ),
+        secondary_enter,
         KeyBinding::new("escape", Escape, Some(CONTEXT)),
         KeyBinding::new("up", MoveUp, Some(CONTEXT)),
         KeyBinding::new("down", MoveDown, Some(CONTEXT)),

@@ -25,10 +25,12 @@ use rust_i18n::t;
 
 pub(crate) fn init(cx: &mut App) {
     let context: Option<&str> = Some("List");
+    let secondary_confirm =
+        crate::actions::secondary_binding("secondary-enter", Confirm { secondary: true }, context, cx);
     cx.bind_keys([
         KeyBinding::new("escape", Cancel, context),
         KeyBinding::new("enter", Confirm { secondary: false }, context),
-        KeyBinding::new("secondary-enter", Confirm { secondary: true }, context),
+        secondary_confirm,
         KeyBinding::new("up", SelectUp, context),
         KeyBinding::new("down", SelectDown, context),
     ]);
