@@ -25,8 +25,8 @@ const THUMB_ACTIVE_WIDTH: Pixels = px(8.);
 const THUMB_ACTIVE_RADIUS: Pixels = px(8. / 2.);
 const THUMB_ACTIVE_INSET: Pixels = px(4.);
 
-const FADE_OUT_DURATION: f32 = 3.0;
-const FADE_OUT_DELAY: f32 = 2.0;
+const FADE_OUT_DURATION: f32 = 1.3;
+const FADE_OUT_DELAY: f32 = 1.0;
 
 /// Scrollbar show mode.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Hash, Default, JsonSchema)]
@@ -626,7 +626,7 @@ impl Element for Scrollbar {
                     }
                 } else {
                     let mut idle_state = self.style_for_idle(cx);
-                    // Delay 2s to fade out the scrollbar thumb (in 1s)
+                    // Hold the thumb for FADE_OUT_DELAY, then fade it out by FADE_OUT_DURATION
                     if let Some(last_time) = state.get().last_scroll_time {
                         let elapsed = Instant::now().duration_since(last_time).as_secs_f32();
                         if is_hovered_on_bar {
@@ -653,7 +653,9 @@ impl Element for Scrollbar {
                                     .detach();
                             }
                         } else if elapsed < FADE_OUT_DURATION {
-                            let opacity = 1.0 - (elapsed - FADE_OUT_DELAY).powi(10);
+                            let t =
+                                (elapsed - FADE_OUT_DELAY) / (FADE_OUT_DURATION - FADE_OUT_DELAY);
+                            let opacity = 1.0 - t.powi(10);
                             idle_state.0 = cx.theme().scrollbar_thumb.opacity(opacity);
 
                             window.request_animation_frame();
