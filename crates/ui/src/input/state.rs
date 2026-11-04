@@ -7,7 +7,7 @@ use gpui::{
     Action, App, AppContext, Bounds, ClipboardItem, Context, Edges, Entity, EntityInputHandler,
     EventEmitter, FocusHandle, Focusable, InteractiveElement as _, IntoElement, KeyBinding,
     KeyDownEvent, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, ParentElement as _,
-    Pixels, Point, Render, ScrollHandle, ScrollWheelEvent, ShapedLine, SharedString, Styled as _,
+    Pixels, Point, Render, ScrollEvent, ScrollHandle, ShapedLine, SharedString, Styled as _,
     Subscription, Task, UTF16Selection, Window, actions, div, point, prelude::FluentBuilder as _,
     px,
 };
@@ -132,6 +132,15 @@ pub(super) const CONTEXT: &str = "Input";
 pub(super) type TextHighlighter = Rc<dyn Fn(&str, &App) -> Vec<(Range<usize>, HighlightStyle)>>;
 
 pub(crate) fn init(cx: &mut App) {
+    let secondary_enter = crate::actions::secondary_binding(
+        "secondary-enter",
+        Enter {
+            secondary: true,
+            shift: false,
+        },
+        Some(CONTEXT),
+        cx,
+    );
     cx.bind_keys([
         KeyBinding::new("backspace", Backspace, Some(CONTEXT)),
         KeyBinding::new("shift-backspace", Backspace, Some(CONTEXT)),
@@ -167,14 +176,7 @@ pub(crate) fn init(cx: &mut App) {
             },
             Some(CONTEXT),
         ),
-        KeyBinding::new(
-            "secondary-enter",
-            Enter {
-                secondary: true,
-                shift: false,
-            },
-            Some(CONTEXT),
-        ),
+        secondary_enter,
         KeyBinding::new("escape", Escape, Some(CONTEXT)),
         KeyBinding::new("up", MoveUp, Some(CONTEXT)),
         KeyBinding::new("down", MoveDown, Some(CONTEXT)),
@@ -1583,7 +1585,7 @@ impl InputState {
 
     pub(super) fn on_scroll_wheel(
         &mut self,
-        event: &ScrollWheelEvent,
+        event: &ScrollEvent,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {

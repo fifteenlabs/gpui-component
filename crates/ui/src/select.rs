@@ -36,15 +36,17 @@ pub use crate::searchable_list::SearchableVec;
 const CONTEXT: &str = "Select";
 
 pub(crate) fn init(cx: &mut App) {
+    let secondary_confirm = crate::actions::secondary_binding(
+        "secondary-enter",
+        Confirm { secondary: true },
+        Some(CONTEXT),
+        cx,
+    );
     cx.bind_keys([
         KeyBinding::new("up", SelectUp, Some(CONTEXT)),
         KeyBinding::new("down", SelectDown, Some(CONTEXT)),
         KeyBinding::new("enter", Confirm { secondary: false }, Some(CONTEXT)),
-        KeyBinding::new(
-            "secondary-enter",
-            Confirm { secondary: true },
-            Some(CONTEXT),
-        ),
+        secondary_confirm,
         KeyBinding::new("escape", Cancel, Some(CONTEXT)),
     ])
 }
