@@ -579,9 +579,7 @@ impl RenderOnce for Dialog {
                             .pt(paddings.top)
                             .pb(paddings.bottom)
                             .when(fullscreen, |this| {
-                                this.h(view_size.height)
-                                    .rounded_none()
-                                    .border_0()
+                                this.h(view_size.height).rounded_none().border_0()
                             })
                             .key_context(CONTEXT)
                             .when(self.props.keyboard, |this| {

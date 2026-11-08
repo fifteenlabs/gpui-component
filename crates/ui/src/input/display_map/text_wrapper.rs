@@ -2,7 +2,8 @@ use gpui::Half;
 use std::ops::Range;
 
 use gpui::{
-    App, Font, IndentAdjustment, LineFragment, Pixels, Point, ShapedLine, Size, TextAlign, Window, point, px, size,
+    App, Font, IndentAdjustment, LineFragment, Pixels, Point, ShapedLine, Size, TextAlign, Window,
+    point, px, size,
 };
 use ropey::Rope;
 use smallvec::SmallVec;
