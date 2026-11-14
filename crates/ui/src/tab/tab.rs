@@ -1,9 +1,10 @@
 use std::rc::Rc;
 
+use crate::menu::{ContextMenuExt as _, PopupMenu};
 use crate::{ActiveTheme, Icon, IconName, Selectable, Sizable, Size, StyledExt, h_flex};
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
-    AnyElement, App, ClickEvent, Div, Edges, Hsla, InteractiveElement, IntoElement, MouseButton,
+    AnyElement, App, ClickEvent, Context, Div, Edges, Hsla, InteractiveElement, IntoElement, MouseButton,
     ParentElement, Pixels, RenderOnce, SharedString, StatefulInteractiveElement, Styled, Window,
     div, px, relative,
 };
@@ -406,7 +407,11 @@ pub struct Tab {
     pub(super) indicator_active: bool,
     pub(super) indicator_ready: bool,
     on_click: Option<Rc<dyn Fn(&ClickEvent, &mut Window, &mut App) + 'static>>,
+    context_menu: Option<TabContextMenu>,
 }
+
+type TabContextMenu =
+    Rc<dyn Fn(PopupMenu, &mut Window, &mut Context<PopupMenu>) -> PopupMenu + 'static>;
 
 impl From<&'static str> for Tab {
     fn from(label: &'static str) -> Self {
@@ -456,6 +461,7 @@ impl Default for Tab {
             variant: TabVariant::default(),
             size: Size::default(),
             on_click: None,
+            context_menu: None,
         }
     }
 }
@@ -464,6 +470,15 @@ impl Tab {
     /// Create a new tab with a label.
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Show a context menu when the tab, padding included, is right-clicked.
+    pub fn context_menu(
+        mut self,
+        f: impl Fn(PopupMenu, &mut Window, &mut Context<PopupMenu>) -> PopupMenu + 'static,
+    ) -> Self {
+        self.context_menu = Some(Rc::new(f));
+        self
     }
 
     /// Set label for the tab.
@@ -626,7 +641,9 @@ impl RenderOnce for Tab {
         };
         let inner_shadow = tab_style.shadow && !segmented_indicator_active;
 
-        self.base
+        let context_menu = self.context_menu.clone();
+        let tab = self
+            .base
             .id(self.ix)
             .relative()
             .flex()
@@ -726,6 +743,12 @@ impl RenderOnce for Tab {
                 this.when_some(self.on_click.clone(), |this, on_click| {
                     this.on_click(move |event, window, cx| on_click(event, window, cx))
                 })
-            })
+            });
+        match context_menu {
+            Some(menu) => tab
+                .context_menu(move |popup, window, cx| menu(popup, window, cx))
+                .into_any_element(),
+            None => tab.into_any_element(),
+        }
     }
 }
