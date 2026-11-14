@@ -784,7 +784,8 @@ impl InputState {
 
     /// Set the text of the input field.
     ///
-    /// And the selection_range will be reset to 0..0.
+    /// A single-line input puts the cursor at the end, a multi-line one at the start.
+    /// The view scrolls to the start; it follows the cursor once the input is focused.
     pub fn set_value(
         &mut self,
         value: impl Into<SharedString>,
@@ -797,7 +798,6 @@ impl InputState {
         self.history.ignore = false;
         self.emit_events = true;
 
-        // Ensure cursor to start when set text
         if self.mode.is_single_line() {
             self.selected_range = (self.text.len()..self.text.len()).into();
         } else {

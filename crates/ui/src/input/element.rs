@@ -285,10 +285,11 @@ impl TextElement {
         last_layout: &LastLayout,
         bounds: &mut Bounds<Pixels>,
         scroll_size: Size<Pixels>,
-        _: &mut Window,
+        window: &mut Window,
         cx: &mut App,
     ) -> (Option<Bounds<Pixels>>, Point<Pixels>, Option<usize>) {
         let state = self.state.read(cx);
+        let focused = state.focus_handle.is_focused(window);
 
         let line_height = last_layout.line_height;
         let visible_range = &last_layout.visible_range;
@@ -403,7 +404,9 @@ impl TextElement {
         {
             let selection_changed = state.last_selected_range != Some(selected_range);
             let auto_scrolling = state.auto_scroll.is_active();
-            if selection_changed && !is_selected_all {
+            // An unfocused input draws no cursor, so it keeps its scroll position
+            // (the start, after `set_value`) instead of following the cursor.
+            if focused && selection_changed && !is_selected_all {
                 // For Right alignment use 0 margin: cursor is clamped to bounds separately,
                 // so we never scroll the text for cursor-at-edge, avoiding a first-click jump.
                 let safety_margin = match last_layout.text_align {
