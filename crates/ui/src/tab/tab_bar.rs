@@ -506,6 +506,7 @@ impl RenderOnce for TabBar {
                             if let Some(ref rc) = bounds_rc {
                                 let rc = rc.clone();
                                 div()
+                                    .flex_shrink_0()
                                     .on_prepaint(move |bounds, window, cx| {
                                         if rc.borrow_mut().set_tab(ix, bounds) {
                                             notify_current_view(window, cx);
