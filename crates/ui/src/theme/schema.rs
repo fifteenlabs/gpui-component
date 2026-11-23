@@ -230,6 +230,9 @@ pub struct ThemeConfigColors {
     /// Progress bar background color.
     #[serde(rename = "progress.bar.background")]
     pub progress_bar: Option<SharedString>,
+    /// Progress track color, behind the bar.
+    #[serde(rename = "progress.track.background")]
+    pub progress_track: Option<SharedString>,
     /// Used for focus ring.
     #[serde(rename = "ring")]
     pub ring: Option<SharedString>,
@@ -287,6 +290,12 @@ pub struct ThemeConfigColors {
     /// Slider thumb background color.
     #[serde(rename = "slider.thumb.background")]
     pub slider_thumb: Option<SharedString>,
+    /// Slider track background color, behind the bar.
+    #[serde(rename = "slider.track.background")]
+    pub slider_track: Option<SharedString>,
+    /// Slider track background color while it is pressed.
+    #[serde(rename = "slider.track.active.background")]
+    pub slider_track_active: Option<SharedString>,
     /// Success background color.
     #[serde(rename = "success.background")]
     pub success: Option<SharedString>,
@@ -610,6 +619,7 @@ impl ThemeColor {
         apply_color!(popover, fallback = self.background);
         apply_color!(popover_foreground, fallback = self.foreground);
         apply_color!(progress_bar, fallback = self.primary);
+        apply_color!(progress_track, fallback = self.progress_bar.opacity(0.2));
         apply_color!(ring, fallback = self.blue);
         apply_color!(scrollbar, fallback = self.background);
         apply_color!(scrollbar_thumb, fallback = self.accent);
@@ -631,6 +641,8 @@ impl ThemeColor {
         apply_color!(skeleton, fallback = self.secondary);
         apply_color!(slider_bar, fallback = self.primary);
         apply_color!(slider_thumb, fallback = self.primary_foreground);
+        apply_color!(slider_track, fallback = self.slider_bar.opacity(0.2));
+        apply_color!(slider_track_active, fallback = self.slider_bar.opacity(0.4));
         apply_color!(switch, fallback = self.secondary_active);
         apply_color!(switch_thumb, fallback = self.background);
         apply_color!(tab, fallback = self.background);
