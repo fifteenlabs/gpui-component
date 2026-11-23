@@ -63,7 +63,12 @@ impl ProgressCircle {
 
     /// Render the arc canvas. `start_value` and `end_value` are in 0.0–100.0 percentage.
     /// The progress arc is skipped when `end_value <= 0`.
-    fn render_circle(start_value: f32, end_value: f32, color: Hsla) -> impl IntoElement {
+    fn render_circle(
+        start_value: f32,
+        end_value: f32,
+        color: Hsla,
+        track: Hsla,
+    ) -> impl IntoElement {
         struct PrepaintState {
             start_value: f32,
             end_value: f32,
@@ -99,7 +104,7 @@ impl ProgressCircle {
                         end_angle: TAU,
                         pad_angle: 0.,
                     },
-                    color.opacity(0.2),
+                    track,
                     None,
                     None,
                     &prepaint.bounds,
@@ -160,6 +165,7 @@ impl RenderOnce for ProgressCircle {
         let has_changed = prev_target != value;
 
         let color = self.color.unwrap_or(cx.theme().progress_bar);
+        let track = cx.theme().progress_track;
 
         div()
             .id(self.id.clone())
@@ -198,25 +204,51 @@ impl RenderOnce for ProgressCircle {
                         Animation::new(duration),
                         move |this, delta| {
                             let v = from + (value - from) * delta;
-                            this.child(Self::render_circle(0., v, color))
+                            this.child(Self::render_circle(0., v, color, track))
                         },
                     )
                     .into_any_element()
                 } else if loading {
-                    this.with_animation(
-                        "progress-circle-loading",
-                        Animation::new(Duration::from_secs(1)).repeat(),
-                        move |this, delta| {
-                            let end = ease_in_out(delta) * 100.;
-                            let start = ease_in_out(((delta - 0.5) / 0.5).clamp(0., 1.)) * 100.;
-                            this.child(Self::render_circle(start, end, color))
-                        },
+                    this.child(
+                        LoadingCircle {
+                            color,
+                            track,
+                            start: 0.,
+                            end: 0.,
+                        }
+                        .with_animation(
+                            "progress-circle-loading",
+                            Animation::new(Duration::from_secs(1)).repeat(),
+                            move |mut this, delta| {
+                                this.end = ease_in_out(delta) * 100.;
+                                this.start =
+                                    ease_in_out(((delta - 0.5) / 0.5).clamp(0., 1.)) * 100.;
+                                this
+                            },
+                        )
+                        .in_own_view(),
                     )
                     .into_any_element()
                 } else {
-                    this.child(Self::render_circle(0., value, color))
+                    this.child(Self::render_circle(0., value, color, track))
                         .into_any_element()
                 }
             })
+    }
+}
+
+/// The arc a loading [`ProgressCircle`] spins, kept apart so that its
+/// animation can build it again each frame in a view of its own.
+#[derive(IntoElement, Clone)]
+struct LoadingCircle {
+    color: Hsla,
+    track: Hsla,
+    start: f32,
+    end: f32,
+}
+
+impl RenderOnce for LoadingCircle {
+    fn render(self, _: &mut Window, _: &mut App) -> impl IntoElement {
+        ProgressCircle::render_circle(self.start, self.end, self.color, self.track)
     }
 }
