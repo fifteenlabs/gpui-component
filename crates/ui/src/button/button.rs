@@ -441,6 +441,7 @@ impl RenderOnce for Button {
         let is_disabled = self.disabled;
         let hoverable = self.hoverable();
         let normal_style = style.normal(self.outline, cx);
+        let draws_border = self.variant.is_default() || self.outline;
         let icon_size = match self.size {
             Size::Size(v) => Size::Size(v * 0.75),
             _ => self.size,
@@ -515,7 +516,7 @@ impl RenderOnce for Button {
             .when(self.border_corners.bottom_right, |this| {
                 this.rounded_br(rounding)
             })
-            .when(self.variant.is_default() || self.outline, |this| {
+            .when(draws_border, |this| {
                 this.when(self.border_edges.left, |this| this.border_l_1())
                     .when(self.border_edges.right, |this| this.border_r_1())
                     .when(self.border_edges.top, |this| this.border_t_1())
@@ -534,15 +535,21 @@ impl RenderOnce for Button {
                     .when(normal_style.underline, |this| this.text_decoration_1())
                     .hover(|this| {
                         let hover_style = style.hovered(self.outline, cx);
-                        this.bg(hover_style.bg)
-                            .border_color(hover_style.border)
-                            .text_color(hover_style.fg)
+                        let this = this.bg(hover_style.bg).text_color(hover_style.fg);
+                        if draws_border {
+                            this.border_color(hover_style.border)
+                        } else {
+                            this
+                        }
                     })
                     .active(|this| {
                         let active_style = style.active(self.outline, cx);
-                        this.bg(active_style.bg)
-                            .border_color(active_style.border)
-                            .text_color(active_style.fg)
+                        let this = this.bg(active_style.bg).text_color(active_style.fg);
+                        if draws_border {
+                            this.border_color(active_style.border)
+                        } else {
+                            this
+                        }
                     })
             })
             .when(self.disabled, |this| {
@@ -665,7 +672,7 @@ impl ButtonVariant {
             Self::Success => cx.theme().success.mix_oklab(cx.theme().transparent, 0.2),
             Self::Info => cx.theme().info.mix_oklab(cx.theme().transparent, 0.2),
             Self::Ghost | Self::Link | Self::Text => cx.theme().transparent,
-            Self::Custom(colors) => colors.color.mix_oklab(cx.theme().transparent, 0.2),
+            Self::Custom(colors) => colors.color,
         }
     }
 
@@ -686,7 +693,7 @@ impl ButtonVariant {
             Self::Info => cx.theme().info,
             Self::Link => cx.theme().link,
             Self::Text => cx.theme().foreground,
-            Self::Custom(colors) => colors.color,
+            Self::Custom(colors) => colors.foreground,
         }
     }
 
@@ -807,13 +814,7 @@ impl ButtonVariant {
                     cx.theme().info.mix_oklab(cx.theme().transparent, 0.3)
                 }
             }
-            Self::Custom(colors) => {
-                if outline {
-                    colors.color.mix_oklab(cx.theme().transparent, 0.2)
-                } else {
-                    colors.color.mix_oklab(cx.theme().transparent, 0.3)
-                }
-            }
+            Self::Custom(colors) => colors.hover,
             Self::Ghost => {
                 if cx.theme().mode.is_dark() {
                     cx.theme().secondary.lighten(0.1).opacity(0.8)
@@ -867,7 +868,7 @@ impl ButtonVariant {
             Self::Warning => cx.theme().warning.mix_oklab(cx.theme().transparent, 0.4),
             Self::Success => cx.theme().success.mix_oklab(cx.theme().transparent, 0.4),
             Self::Info => cx.theme().info.mix_oklab(cx.theme().transparent, 0.4),
-            Self::Custom(colors) => colors.color.mix_oklab(cx.theme().transparent, 0.4),
+            Self::Custom(colors) => colors.active,
             Self::Link => cx.theme().transparent,
             Self::Text => cx.theme().transparent,
         };
