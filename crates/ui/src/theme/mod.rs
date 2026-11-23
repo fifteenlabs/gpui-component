@@ -6,6 +6,7 @@ use gpui::{App, Global, Hsla, Pixels, SharedString, Window, WindowAppearance, px
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use std::{
+    cell::LazyCell,
     ops::{Deref, DerefMut},
     rc::Rc,
     sync::Arc,
@@ -108,11 +109,58 @@ impl DerefMut for Theme {
 
 impl Global for Theme {}
 
+/// Themes an element subtree can be drawn with instead of the global one.
+///
+/// [`Theme::global`] returns the entered theme while a scope is entered, so a
+/// part of the window can show another theme without replacing the global,
+/// which would notify every observer and invalidate every view that reads it.
+/// The entered scope is inherited through [`App::set_inherited`], so a view
+/// nested in a scope that is drawn again on its own, or an element deferred
+/// inside one, is still drawn with the scope's theme. The themes are built the
+/// first time a scope is drawn, so an app that never enters one never builds
+/// them.
+pub struct ThemeScopes {
+    themes: LazyCell<Vec<Theme>, Box<dyn FnOnce() -> Vec<Theme>>>,
+}
+
+impl Global for ThemeScopes {}
+
+#[derive(Clone, Copy, PartialEq)]
+struct EnteredThemeScope(usize);
+
+impl ThemeScopes {
+    /// Replaces the themes scopes can enter, by index, with the ones `build`
+    /// returns when a scope first needs them.
+    pub fn set(build: impl FnOnce() -> Vec<Theme> + 'static, cx: &mut App) {
+        cx.set_global(Self {
+            themes: LazyCell::new(Box::new(build)),
+        });
+    }
+
+    /// Enters the theme at `index`, or leaves every scope with `None`, and
+    /// returns the scope that was entered before so the caller can restore it.
+    pub fn enter(index: Option<usize>, cx: &App) -> Option<usize> {
+        cx.set_inherited(index.map(EnteredThemeScope))
+            .map(|EnteredThemeScope(index)| index)
+    }
+
+    /// The index of the entered scope, if any.
+    pub fn entered_index(cx: &App) -> Option<usize> {
+        cx.inherited::<EnteredThemeScope>()
+            .map(|EnteredThemeScope(index)| index)
+    }
+
+    fn entered(cx: &App) -> Option<&Theme> {
+        let index = Self::entered_index(cx)?;
+        cx.try_global::<Self>()?.themes.get(index)
+    }
+}
+
 impl Theme {
-    /// Returns the global theme reference
+    /// Returns the global theme reference, or the entered scope's theme.
     #[inline(always)]
     pub fn global(cx: &App) -> &Theme {
-        cx.global::<Theme>()
+        ThemeScopes::entered(cx).unwrap_or_else(|| cx.global::<Theme>())
     }
 
     /// Returns the global theme mutable reference
