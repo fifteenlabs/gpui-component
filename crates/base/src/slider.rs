@@ -1,5 +1,6 @@
 use crate::TestSupportExt as _;
 use std::ops::Range;
+use web_time::Instant;
 
 use gpui::{
     AccessibleAction, Along, AnyElement, App, AppContext as _, Axis, Bounds, Context, Div,
@@ -187,6 +188,91 @@ pub struct SliderState {
     dragging: bool,
     /// The touch drag this slider claimed, while one is live.
     touch_drag: Option<TouchDrag>,
+    /// Where the drag in progress began. See [`DragAnchor`].
+    anchor: Option<DragAnchor>,
+    /// Tremor filtering for the pointer, when this slider has asked for it.
+    /// See [`SliderState::smoothed`].
+    smoothing: Option<OneEuroFilter>,
+}
+
+/// The 1€ filter, over a single scalar.
+///
+/// A pointer carries hand tremor, and a slider that redraws the world on every
+/// change turns a shake too small to notice into a shake impossible to miss.
+/// A fixed low-pass trades that jitter for lag at every speed. The 1€ filter
+/// (Casiez, Roussel & Vogel, CHI 2012, <https://gery.casiez.net/1euro/>)
+/// low-passes the signal's own speed and uses it to pick the cutoff: slow
+/// movement is tremor and gets smoothed hard, fast movement is intent and
+/// passes nearly untouched.
+#[derive(Debug)]
+struct OneEuroFilter {
+    /// Previous input, previous filtered output, previous filtered speed, and
+    /// when they were taken. `None` until the first sample.
+    previous: Option<(f32, f32, f32, Instant)>,
+}
+
+impl OneEuroFilter {
+    /// Cutoff at zero speed, in Hz. Lower is steadier and laggier.
+    const MIN_CUTOFF: f32 = 1.0;
+    /// How sharply the cutoff opens up with speed.
+    const BETA: f32 = 0.02;
+    /// Cutoff for the speed estimate itself, in Hz.
+    const DERIVATIVE_CUTOFF: f32 = 1.0;
+
+    fn new() -> Self {
+        Self { previous: None }
+    }
+
+    /// Forget the signal so far, so a new gesture does not inherit the speed
+    /// of the last one.
+    fn reset(&mut self) {
+        self.previous = None;
+    }
+
+    fn alpha(cutoff: f32, dt: f32) -> f32 {
+        let tau = 1.0 / (2.0 * std::f32::consts::PI * cutoff);
+        1.0 / (1.0 + tau / dt)
+    }
+
+    fn filter(&mut self, value: f32, now: Instant) -> f32 {
+        let Some((previous_value, previous_output, previous_speed, at)) = self.previous else {
+            self.previous = Some((value, value, 0.0, now));
+            return value;
+        };
+
+        let dt = now.duration_since(at).as_secs_f32();
+        if dt <= 0.0 {
+            return previous_output;
+        }
+
+        let raw_speed = (value - previous_value) / dt;
+        let speed = previous_speed
+            + (raw_speed - previous_speed) * Self::alpha(Self::DERIVATIVE_CUTOFF, dt);
+        let cutoff = Self::MIN_CUTOFF + Self::BETA * speed.abs();
+        let output = previous_output + (value - previous_output) * Self::alpha(cutoff, dt);
+
+        self.previous = Some((value, output, speed, now));
+        output
+    }
+}
+
+/// The frozen starting point of a drag.
+///
+/// A slider is normally read absolutely: the pointer, minus the track's
+/// origin, over the track's length. That is only sound while the track holds
+/// still, and a slider that changes the layout it is drawn in (a UI zoom, a
+/// font size) moves its own track as you drag it. The pointer and the track's
+/// length are therefore captured once, in screen units, when the drag begins,
+/// and every later move is read as travel from there. For a slider that leaves
+/// its own layout alone this is the same arithmetic as before.
+#[derive(Clone, Copy, Debug)]
+struct DragAnchor {
+    /// Pointer position along the axis when the drag began, in screen units.
+    pointer: Pixels,
+    /// The fraction of the track under the pointer at that moment.
+    percentage: f32,
+    /// The track's length when the drag began, in screen units.
+    track: Pixels,
 }
 
 /// A touch drag claimed by a slider.
@@ -211,7 +297,19 @@ impl SliderState {
             scale: SliderScale::default(),
             dragging: false,
             touch_drag: None,
+            anchor: None,
+            smoothing: None,
         }
+    }
+
+    /// Smooth hand tremor out of the pointer while dragging.
+    ///
+    /// Off by default, because smoothing buys steadiness with latency. Worth
+    /// turning on when a small change is expensive or highly visible, such as
+    /// a control that resizes the interface it is drawn in.
+    pub fn smoothed(mut self, smoothed: bool) -> Self {
+        self.smoothing = smoothed.then(OneEuroFilter::new);
+        self
     }
 
     /// Set the minimum value of the slider, default: 0.0
@@ -378,13 +476,76 @@ impl SliderState {
         _: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.dragging = true;
-        let bounds = self.bounds;
-        let step = self.step;
+        let percentage = self.percentage_at(axis, position, cx);
+        self.apply_percentage(percentage, is_start, cx);
+    }
 
+    /// The fraction of the track under `position`, read absolutely.
+    fn percentage_at(&self, axis: Axis, position: Point<Pixels>, cx: &App) -> f32 {
         let inner_pos = self.offset_along(axis, position, cx);
-        let total_size = bounds.size.along(axis);
-        let percentage = inner_pos.clamp(px(0.), total_size) / total_size;
+        let total_size = self.bounds.size.along(axis);
+        inner_pos.clamp(px(0.), total_size) / total_size
+    }
+
+    /// Begin a drag: read the pointer against the track as an absolute
+    /// position, so a press on the track jumps there, and remember where it
+    /// started. Every later move goes through [`Self::drag_to`].
+    fn press_at(
+        &mut self,
+        axis: Axis,
+        position: Point<Pixels>,
+        is_start: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let percentage = self.percentage_at(axis, position, cx);
+        let zoom = window.zoom();
+        if let Some(smoothing) = self.smoothing.as_mut() {
+            smoothing.reset();
+        }
+        self.anchor = Some(DragAnchor {
+            pointer: position.along(axis) * zoom,
+            percentage,
+            track: self.bounds.size.along(axis) * zoom,
+        });
+        self.apply_percentage(percentage, is_start, cx);
+    }
+
+    /// Continue a drag by how far the pointer has physically moved since
+    /// [`Self::press_at`].
+    fn drag_to(
+        &mut self,
+        axis: Axis,
+        position: Point<Pixels>,
+        is_start: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(anchor) = self.anchor else {
+            return self.press_at(axis, position, is_start, window, cx);
+        };
+        if anchor.track <= px(0.) {
+            return;
+        }
+
+        let pointer = position.along(axis) * window.zoom();
+        let pointer = match self.smoothing.as_mut() {
+            Some(smoothing) => px(smoothing.filter(f32::from(pointer), Instant::now())),
+            None => pointer,
+        };
+
+        let travelled = pointer - anchor.pointer;
+        let toward_max = axis.is_horizontal() && !LayoutDirection::global(cx).is_rtl();
+        let travelled = if toward_max { travelled } else { -travelled };
+
+        let percentage = (anchor.percentage + travelled / anchor.track).clamp(0., 1.);
+        self.apply_percentage(percentage, is_start, cx);
+    }
+
+    /// Snap a fraction of the track to a step, store it, and announce it.
+    fn apply_percentage(&mut self, percentage: f32, is_start: bool, cx: &mut Context<Self>) {
+        self.dragging = true;
+        let step = self.step;
 
         let percentage = if is_start {
             percentage.clamp(0.0, self.percentage.end)
@@ -489,6 +650,7 @@ impl SliderState {
     /// with the slider. Called on mouse-up both inside and outside the slider.
     #[doc(hidden)]
     pub fn handle_release(&mut self, cx: &mut Context<Self>) {
+        self.anchor = None;
         if !self.dragging {
             return;
         }
@@ -858,8 +1020,17 @@ impl RenderOnce for SliderTrack {
                             }
                             cx.stop_propagation();
                             match event.phase {
-                                TouchPhase::Started | TouchPhase::Moved => {
-                                    state.update_value_by_position(
+                                TouchPhase::Started => {
+                                    state.press_at(
+                                        axis,
+                                        event.position,
+                                        drag.is_start,
+                                        window,
+                                        cx,
+                                    );
+                                }
+                                TouchPhase::Moved => {
+                                    state.drag_to(
                                         axis,
                                         event.position,
                                         drag.is_start,
@@ -892,7 +1063,7 @@ impl RenderOnce for SliderTrack {
                         move |state, event: &MouseDownEvent, window, cx| {
                             let is_start =
                                 is_range && state.is_nearer_start(axis, event.position, cx);
-                            state.update_value_by_position(
+                            state.press_at(
                                 axis,
                                 event.position,
                                 is_start,
@@ -912,7 +1083,7 @@ impl RenderOnce for SliderTrack {
                         move |state, event: &DragMoveEvent<DragSlider>, window, cx| {
                             let DragSlider(id) = event.drag(cx);
                             if *id == entity_id {
-                                state.update_value_by_position(
+                                state.drag_to(
                                     axis,
                                     event.event.position,
                                     false,
@@ -1061,7 +1232,7 @@ impl RenderOnce for SliderThumb {
                         move |state, event: &DragMoveEvent<DragThumb>, window, cx| {
                             let DragThumb((id, start)) = event.drag(cx);
                             if *id == entity_id {
-                                state.update_value_by_position(
+                                state.drag_to(
                                     axis,
                                     event.event.position,
                                     *start,
