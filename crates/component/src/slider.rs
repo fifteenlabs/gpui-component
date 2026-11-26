@@ -340,8 +340,8 @@ impl RenderOnce for Slider {
                             .relative()
                             .when(axis.is_horizontal(), |this| this.w_full().h_1p5())
                             .when(axis.is_vertical(), |this| this.h_full().w_1p5())
-                            .bg(bar_color.opacity(0.2))
-                            .active(|this| this.bg(bar_color.opacity(0.4)))
+                            .bg(cx.theme().slider_track)
+                            .active(|this| this.bg(cx.theme().slider_track_active))
                             .corner_radii(radius)
                             .child(
                                 div()

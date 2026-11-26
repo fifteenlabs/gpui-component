@@ -81,6 +81,9 @@ impl Sizable for Progress {
 
 impl RenderOnce for Progress {
     fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
+        let track = self
+            .color
+            .map_or(cx.theme().progress_track, |color| color.opacity(0.2));
         let bg = self
             .color
             .map(Background::from)
@@ -134,7 +137,7 @@ impl RenderOnce for Progress {
                 ProgressTrack::new()
                     .absolute()
                     .size_full()
-                    .bg(bg.opacity(0.2))
+                    .bg(track)
                     .rounded(radius)
                     .refine_style(&inner_style),
             )

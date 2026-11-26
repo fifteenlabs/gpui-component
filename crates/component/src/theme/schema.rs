@@ -499,6 +499,9 @@ pub struct ThemeConfigColors {
     /// Progress bar background color.
     #[serde(rename = "progress.bar.background")]
     pub progress_bar: Option<SharedString>,
+    /// Progress track color, behind the bar.
+    #[serde(rename = "progress.track.background")]
+    pub progress_track: Option<SharedString>,
     /// Used for focus ring.
     #[serde(rename = "ring")]
     pub ring: Option<SharedString>,
@@ -556,6 +559,12 @@ pub struct ThemeConfigColors {
     /// Slider thumb background color.
     #[serde(rename = "slider.thumb.background")]
     pub slider_thumb: Option<SharedString>,
+    /// Slider track background color, behind the bar.
+    #[serde(rename = "slider.track.background")]
+    pub slider_track: Option<SharedString>,
+    /// Slider track background color while it is pressed.
+    #[serde(rename = "slider.track.active.background")]
+    pub slider_track_active: Option<SharedString>,
     /// Success background color.
     #[serde(rename = "success.background")]
     pub success: Option<SharedString>,
@@ -992,6 +1001,7 @@ impl ThemeColor {
         apply_background_color!(popover, fallback = tokens.background);
         apply_color!(popover_foreground, fallback = self.foreground);
         apply_background_color!(progress_bar, fallback = tokens.primary);
+        apply_color!(progress_track, fallback = self.progress_bar.opacity(0.2));
         apply_color!(ring, fallback = self.blue);
         apply_background_color!(scrollbar, fallback = tokens.background);
         apply_background_color!(scrollbar_thumb, fallback = tokens.accent);
@@ -1013,6 +1023,8 @@ impl ThemeColor {
         apply_background_color!(skeleton, fallback = tokens.secondary);
         apply_background_color!(slider_bar, fallback = tokens.primary);
         apply_background_color!(slider_thumb, fallback = self.primary_foreground);
+        apply_color!(slider_track, fallback = self.slider_bar.opacity(0.2));
+        apply_color!(slider_track_active, fallback = self.slider_bar.opacity(0.4));
         apply_background_color!(switch, fallback = tokens.secondary_active);
         apply_background_color!(switch_thumb, fallback = tokens.background);
         apply_background_color!(tab, fallback = tokens.background);

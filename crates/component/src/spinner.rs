@@ -68,7 +68,8 @@ impl RenderOnce for Spinner {
                         "circle",
                         Animation::new(self.speed).repeat().with_easing(self.easing),
                         |this, delta| this.transform(Transformation::rotate(percentage(delta))),
-                    ),
+                    )
+                    .in_own_view(),
             )
             .into_element()
     }

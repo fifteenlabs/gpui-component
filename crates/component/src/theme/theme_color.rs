@@ -213,6 +213,8 @@ pub struct ThemeColor {
     pub primary_hover: Hsla,
     /// Progress bar background color.
     pub progress_bar: Hsla,
+    /// Progress track color, behind the bar.
+    pub progress_track: Hsla,
     /// Used for focus ring.
     pub ring: Hsla,
     /// Scrollbar background color.
@@ -251,6 +253,10 @@ pub struct ThemeColor {
     pub slider_bar: Hsla,
     /// Slider thumb background color.
     pub slider_thumb: Hsla,
+    /// Slider track background color, behind the bar.
+    pub slider_track: Hsla,
+    /// Slider track background color while it is pressed.
+    pub slider_track_active: Hsla,
     /// Success background color.
     pub success: Hsla,
     /// Success text color.
@@ -484,6 +490,7 @@ define_theme_tokens! {
     primary_foreground,
     primary_hover,
     progress_bar,
+    progress_track,
     ring,
     scrollbar,
     scrollbar_thumb,
@@ -503,6 +510,8 @@ define_theme_tokens! {
     skeleton,
     slider_bar,
     slider_thumb,
+    slider_track,
+    slider_track_active,
     success,
     success_foreground,
     success_hover,
