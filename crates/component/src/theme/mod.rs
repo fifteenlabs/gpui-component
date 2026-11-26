@@ -79,11 +79,11 @@ fn plot_appear_easing(t: f32) -> f32 {
 }
 
 /// How long the scrollbar stays visible after the last scroll, drag, or hover.
-const SCROLLBAR_IDLE: Duration = Duration::from_secs(2);
+const SCROLLBAR_IDLE: Duration = Duration::from_secs(1);
 /// How long the scrollbar takes to appear.
 const SCROLLBAR_ENTER: Duration = Duration::from_millis(300);
 /// How long the scrollbar takes to fade away once the idle hold expires.
-const SCROLLBAR_EXIT: Duration = Duration::from_millis(500);
+const SCROLLBAR_EXIT: Duration = Duration::from_millis(300);
 /// How long the thumb takes to reach its hovered or resting width.
 const SCROLLBAR_EXPAND: Duration = Duration::from_millis(300);
 
