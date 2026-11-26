@@ -18,7 +18,7 @@ use crate::{
     button::{Button, ButtonVariant, ButtonVariants as _},
     dialog::{DialogContent, DialogDispatchAnchor, DialogTitle},
     scroll::ScrollableElement as _,
-    v_flex,
+    h_flex, v_flex,
 };
 
 pub static ANIMATION_DURATION: LazyLock<Duration> = LazyLock::new(|| Duration::from_secs_f64(0.25));
@@ -207,6 +207,7 @@ pub(crate) struct DialogProps {
     margin_top: Option<Pixels>,
     centered: bool,
     close_button: bool,
+    fullscreen: bool,
 
     overlay: bool,
     overlay_closable: bool,
@@ -220,6 +221,7 @@ impl Default for DialogProps {
         Self {
             margin_top: None,
             centered: false,
+            fullscreen: false,
             width: px(448.),
             max_width: None,
             overlay: true,
@@ -496,6 +498,19 @@ impl Dialog {
         self
     }
 
+    /// Fill the window instead of floating over it, defaults to `false`.
+    ///
+    /// The dialog ignores its width, top offset and stacking offset, keeps its
+    /// content inside the window's fully visible bounds (safe areas and an
+    /// on-screen keyboard), slides up from the bottom edge, and puts the close
+    /// button in a bar above the content. There is no overlay left to click,
+    /// so a dialog that an overlay click would close shows the close button
+    /// too.
+    pub fn fullscreen(mut self, fullscreen: bool) -> Self {
+        self.props.fullscreen = fullscreen;
+        self
+    }
+
     /// Set the top offset of the dialog, defaults to None, will use the 1/10 of the viewport height.
     pub fn margin_top(mut self, margin_top: impl Into<Pixels>) -> Self {
         self.props.margin_top = Some(margin_top.into());
@@ -676,9 +691,20 @@ impl RenderOnce for Dialog {
         // the window. A dialog that fits keeps `margin_top` (a tenth of the
         // viewport by default); an overflowing one is snapped up to this edge
         // margin so that the preferred offset does not waste usable height.
-        let margin = cx.theme().spacing_tokens().lg;
-        let layer_offset = px(self.stack_depth as f32 * 16.);
-        let (anchor, y) = if self.props.centered {
+        let fullscreen = self.props.fullscreen;
+        let margin = if fullscreen {
+            px(0.)
+        } else {
+            cx.theme().spacing_tokens().lg
+        };
+        let layer_offset = if fullscreen {
+            px(0.)
+        } else {
+            px(self.stack_depth as f32 * 16.)
+        };
+        let (anchor, y) = if fullscreen {
+            (Anchor::TopLeft, px(0.))
+        } else if self.props.centered {
             (Anchor::LeftCenter, view_size.height / 2.)
         } else {
             let y = self.props.margin_top.unwrap_or(view_size.height / 10.);
@@ -693,10 +719,13 @@ impl RenderOnce for Dialog {
             .map_or(1.0, |motion| motion.visibility.clamp(0., 1.));
         let fade_overlay = closing && self.props.overlay_visible;
         let travel = motion.distance_short.to_pixels(window.rem_size());
-        let width = self
-            .props
-            .width
-            .min((view_size.width - margin * 2.).max(px(0.)));
+        let width = if fullscreen {
+            view_size.width
+        } else {
+            self.props
+                .width
+                .min((view_size.width - margin * 2.).max(px(0.)))
+        };
         let x = (view_size.width - width) / 2.;
         let max_height = (view_size.height - margin * 2. - layer_offset).max(px(0.));
 
@@ -715,6 +744,16 @@ impl RenderOnce for Dialog {
         }
         if let Some(pb) = self.style.padding.bottom {
             paddings.bottom = pb.to_pixels(base_size, rem_size);
+        }
+        let closable_by_button =
+            self.props.close_button || (self.props.overlay && self.props.overlay_closable);
+        if fullscreen {
+            let visible = window.fully_visible_bounds();
+            let origin = point(window_paddings.left, window_paddings.top);
+            paddings.top += (visible.top() - origin.y).max(px(0.));
+            paddings.left += (visible.left() - origin.x).max(px(0.));
+            paddings.bottom += (origin.y + view_size.height - visible.bottom()).max(px(0.));
+            paddings.right += (origin.x + view_size.width - visible.right()).max(px(0.));
         }
 
         // The newest dialog still open owns Escape, the backdrop, and the
@@ -809,6 +848,27 @@ impl RenderOnce for Dialog {
                                         .w(width)
                                         .when_some(self.props.max_width, |this, w| this.max_w(w))
                                         .max_h(max_height)
+                                        .when(fullscreen, |this| {
+                                            this.h(view_size.height).rounded_none().border_0()
+                                        })
+                                        .when(fullscreen && closable_by_button, |this| {
+                                            this.child(
+                                                h_flex()
+                                                    .flex_shrink_0()
+                                                    .justify_end()
+                                                    .pl(paddings.left)
+                                                    .pr((paddings.right - px(8.)).max(px(8.)))
+                                                    .child(gpui_base::DialogClose::new().trigger(
+                                                        |button| {
+                                                            Button::new("close")
+                                                                .with_base(button)
+                                                                .ghost()
+                                                                .icon(IconName::Close)
+                                                                .accessibility_label("Close")
+                                                        },
+                                                    )),
+                                            )
+                                        })
                                         .child(
                                             v_flex()
                                                 .flex_1()
@@ -862,7 +922,7 @@ impl RenderOnce for Dialog {
                                                     .child(footer),
                                             )
                                         })
-                                        .children(self.props.close_button.then(|| {
+                                        .children((!fullscreen && self.props.close_button).then(|| {
                                             let top = (paddings.top - px(10.)).max(px(8.));
                                             let right = (paddings.right - px(10.)).max(px(8.));
 
@@ -913,7 +973,7 @@ impl RenderOnce for Dialog {
                                         .shadow(dialog_shadow(visibility))
                                         .text_selection_scope(selection_scope)
                                         .map(|surface| {
-                                            if entrance == DialogEntrance::FadeSlide {
+                                            if entrance == DialogEntrance::FadeSlide && !fullscreen {
                                                 let mut surface = EntranceSurface::new(
                                                     surface.into_any_element(),
                                                     travel,
@@ -926,8 +986,14 @@ impl RenderOnce for Dialog {
                                             }
                                         }),
                                 )
+                                .when(fullscreen, |positioner| {
+                                    positioner.position(point(
+                                        window_paddings.left,
+                                        window_paddings.top + view_size.height * (1. - visibility),
+                                    ))
+                                })
                                 .when(
-                                    entrance == DialogEntrance::SlideDown,
+                                    entrance == DialogEntrance::SlideDown && !fullscreen,
                                     |positioner| {
                                         positioner.position(point(
                                             window_paddings.left + x,
