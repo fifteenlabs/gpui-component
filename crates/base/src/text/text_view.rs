@@ -1129,9 +1129,7 @@ impl Element for TextView {
         if let Some(clip_bottom) = prepaint.clip_bottom {
             // Snap the `max_lines` clip to the last whole line that fits, so a
             // line of glyphs is never cut in half.
-            let mask = ContentMask {
-                bounds: Bounds::from_corners(bounds.origin, point(bounds.right(), clip_bottom)),
-            };
+            let mask = ContentMask::new(Bounds::from_corners(bounds.origin, point(bounds.right(), clip_bottom)));
             window.with_content_mask(Some(mask), |window| {
                 request_layout.element.paint(window, cx);
             });

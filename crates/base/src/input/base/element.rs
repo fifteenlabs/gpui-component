@@ -4550,12 +4550,12 @@ impl<M: InputModeKind, R: EditorLineNumberRenderer> Element for TextElement<M, R
             editor_paddings,
             prepaint.last_layout.gutter_side,
         );
-        let text_mask = (prepaint.last_layout.line_number_width > px(0.)).then(|| ContentMask {
-            bounds: editor_text_bounds(
+        let text_mask = (prepaint.last_layout.line_number_width > px(0.)).then(|| {
+            ContentMask::new(editor_text_bounds(
                 window.content_mask().bounds,
                 gutter_bounds,
                 prepaint.last_layout.gutter_side,
-            ),
+            ))
         });
 
         let cursor_row_y = window.with_content_mask(text_mask, |window| {

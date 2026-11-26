@@ -112,7 +112,7 @@ impl Element for CarouselScrollMask {
             })
             .unwrap_or_default();
 
-        window.with_content_mask(Some(ContentMask { bounds }), |window| {
+        window.with_content_mask(Some(ContentMask::new(bounds)), |window| {
             let pointer_state = state.clone();
             window.on_mouse_event(move |event: &MouseDownEvent, phase, window, cx| {
                 if phase.capture()

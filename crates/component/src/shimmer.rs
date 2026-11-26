@@ -259,7 +259,7 @@ impl ShimmerGlyphs {
     fn paint_highlight(&self, bounds: Bounds<Pixels>, window: &mut Window, cx: &mut App) {
         let masks = std::array::from_fn::<_, SHIMMER_LAYER_COUNT, _>(|layer| {
             shimmer_band_bounds(bounds, self.phase, self.spread, layer)
-                .map(|bounds| ContentMask { bounds })
+                .map(|bounds| ContentMask::new(bounds))
         });
 
         if masks.iter().all(Option::is_none) {

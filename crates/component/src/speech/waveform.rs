@@ -175,7 +175,7 @@ fn bars(state: &SpeechState, height: Pixels, animate: bool, color: Hsla) -> AnyE
             // Bars are anti-aliased paths, not quads: quads snap to whole
             // device pixels, so a bar moving a fraction of a pixel per
             // frame would step instead of glide.
-            window.with_content_mask(Some(ContentMask { bounds }), |window| {
+            window.with_content_mask(Some(ContentMask::new(bounds)), |window| {
                 for rect in bar_rects(bounds, &levels, scroll, bar, gap) {
                     if let Some(path) = capsule(rect) {
                         window.paint_path(path, color);
@@ -218,7 +218,7 @@ fn liquid(
         },
         move |bounds, heights, window, _| {
             let points = surface_points(bounds, &heights);
-            window.with_content_mask(Some(ContentMask { bounds }), |window| {
+            window.with_content_mask(Some(ContentMask::new(bounds)), |window| {
                 let mut water = PathBuilder::fill();
                 trace(&mut water, &points);
                 water.line_to(bounds.bottom_right());

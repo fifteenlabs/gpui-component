@@ -347,7 +347,7 @@ impl Element for ScrollBounce {
             }
         };
         let hitbox = window.insert_hitbox(bounds, HitboxBehavior::Normal);
-        window.with_content_mask(Some(ContentMask { bounds }), |window| {
+        window.with_content_mask(Some(ContentMask::new(bounds)), |window| {
             window.with_element_offset(point(px(0.), px(offset)), |window| {
                 self.child.prepaint(window, cx);
             });
@@ -536,7 +536,7 @@ impl Element for ScrollBounce {
                 }
             });
         }
-        window.with_content_mask(Some(ContentMask { bounds }), |window| {
+        window.with_content_mask(Some(ContentMask::new(bounds)), |window| {
             self.child.paint(window, cx)
         });
         // After the children, so that the areas inside act first.

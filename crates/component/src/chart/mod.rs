@@ -116,12 +116,10 @@ pub(crate) fn reveal_mask(
     let bleed = HOVER_DOT_SIZE / 2.;
     let start = bounds.left() + px(left) - bleed;
     let end = start + (bounds.right() + bleed - start) * progress.max(0.);
-    Some(ContentMask {
-        bounds: Bounds::from_corners(
-            gpui::point(bounds.left() - bleed, bounds.top() - bleed),
-            gpui::point(end, bounds.bottom() + bleed),
-        ),
-    })
+    Some(ContentMask::new(Bounds::from_corners(
+        gpui::point(bounds.left() - bleed, bounds.top() - bleed),
+        gpui::point(end, bounds.bottom() + bleed),
+    )))
 }
 
 /// The size of the dot marking the hovered data point.
@@ -571,12 +569,10 @@ impl PointAxes {
 /// strokes and dots on the plot's edges whole.
 pub(crate) fn pinned_plot_mask(bounds: Bounds<Pixels>, height: f32) -> ContentMask<Pixels> {
     let bleed = HOVER_DOT_SIZE / 2.;
-    ContentMask {
-        bounds: Bounds::from_corners(
-            bounds.origin - gpui::point(bleed, bleed),
-            gpui::point(bounds.right() + bleed, bounds.top() + px(height) + bleed),
-        ),
-    }
+    ContentMask::new(Bounds::from_corners(
+        bounds.origin - gpui::point(bleed, bleed),
+        gpui::point(bounds.right() + bleed, bounds.top() + px(height) + bleed),
+    ))
 }
 
 /// Build x-axis labels for point-based scales (`LineChart`, `AreaChart`).

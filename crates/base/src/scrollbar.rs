@@ -1369,7 +1369,7 @@ impl Element for Scrollbar {
         cx: &mut App,
     ) -> Self::PrepaintState {
         let bounds = self.resolved_viewport_bounds(bounds);
-        let hitbox = window.with_content_mask(Some(ContentMask { bounds }), |window| {
+        let hitbox = window.with_content_mask(Some(ContentMask::new(bounds)), |window| {
             window.insert_hitbox(bounds, HitboxBehavior::Normal)
         });
 
@@ -1633,7 +1633,7 @@ impl Element for Scrollbar {
             let thumb_fill_bounds =
                 Bounds::from_anchor_and_size(thumb_anchor, thumb_origin, thumb_size(thumb_width));
 
-            let bar_hitbox = window.with_content_mask(Some(ContentMask { bounds }), |window| {
+            let bar_hitbox = window.with_content_mask(Some(ContentMask::new(bounds)), |window| {
                 window.insert_hitbox(bounds, gpui::HitboxBehavior::Normal)
             });
 
@@ -1681,9 +1681,7 @@ impl Element for Scrollbar {
         let is_hover_to_show = mode.is_hover();
 
         window.with_content_mask(
-            Some(ContentMask {
-                bounds: hitbox_bounds,
-            }),
+            Some(ContentMask::new(hitbox_bounds)),
             |window| {
                 for state in prepaint.states.iter() {
                     let axis = state.axis;
