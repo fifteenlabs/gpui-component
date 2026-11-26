@@ -654,6 +654,7 @@ impl RenderOnce for Button {
         let children = self.children;
         let instance_style = base.style().clone();
         let normal_style = style.normal(self.outline, cx);
+        let draws_border = self.variant.is_default() || self.outline;
         let selected_style = style.selected(self.outline, cx);
         let disabled_style = style.disabled(self.outline, cx);
         let icon_size = self.icon_size.unwrap_or_else(|| match self.size {
@@ -736,7 +737,7 @@ impl RenderOnce for Button {
             .when(border_corners.bottom_right, |this| {
                 this.rounded_br(rounding)
             })
-            .when(self.variant.is_default() || self.outline, |this| {
+            .when(draws_border, |this| {
                 this.when(border_edges.left, |this| this.border_l_1())
                     .when(border_edges.right, |this| this.border_r_1())
                     .when(border_edges.top, |this| this.border_t_1())
@@ -752,9 +753,12 @@ impl RenderOnce for Button {
                     .when(interactive, |this| {
                         this.active(|this| {
                             let active_style = style.active(self.outline, cx);
-                            this.bg(active_style.bg)
-                                .border_color(active_style.border)
-                                .text_color(active_style.fg)
+                            let this = this.bg(active_style.bg).text_color(active_style.fg);
+                            if draws_border {
+                                this.border_color(active_style.border)
+                            } else {
+                                this
+                            }
                         })
                         .when_some(hover_group, |this, group| {
                             let idle_bg = style.hovered(self.outline, cx).bg.opacity(0.5);
@@ -771,9 +775,12 @@ impl RenderOnce for Button {
                     return this;
                 }
                 let hover_style = style.hovered(self.outline, cx);
-                this.bg(hover_style.bg)
-                    .border_color(hover_style.border)
-                    .text_color(hover_style.fg)
+                let this = this.bg(hover_style.bg).text_color(hover_style.fg);
+                if draws_border {
+                    this.border_color(hover_style.border)
+                } else {
+                    this
+                }
             })
             .line_height(relative(1.25))
             .refine_style(&instance_style);
@@ -1054,7 +1061,7 @@ impl ButtonVariant {
             Self::Success => cx.theme().tokens.button_success.into(),
             Self::Info => cx.theme().tokens.button_info.into(),
             Self::Ghost | Self::Link | Self::Text => cx.theme().transparent.into(),
-            Self::Custom(colors) => colors.color.mix_oklab(cx.theme().transparent, 0.2).into(),
+            Self::Custom(colors) => colors.color.into(),
         }
     }
 
