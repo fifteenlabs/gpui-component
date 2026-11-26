@@ -86,6 +86,17 @@ impl TextView {
             stream_fade: None,
         }
     }
+    /// Creates a text view that shows `text` verbatim, without parsing markup.
+    pub fn plain(id: impl Into<ElementId>, text: impl Into<SharedString>) -> Self {
+        let id = id.into();
+        Self {
+            id: id.clone(),
+            inner: gpui_base::TextView::plain(id, text),
+            text_style: None,
+            motion: None,
+            stream_fade: None,
+        }
+    }
     /// Overrides the source of every document image, including embedded data URLs.
     ///
     /// Used for both rendering and intrinsic-size measurement. The returned source

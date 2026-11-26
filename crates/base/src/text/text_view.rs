@@ -395,6 +395,41 @@ impl TextView {
         }
     }
 
+    /// Create a new plain text view.
+    ///
+    /// The source is rendered verbatim: no markup is interpreted, and newlines
+    /// and leading whitespace are kept as written. Use this for literal
+    /// content (a pasted snippet, pretty-printed JSON) that should still be
+    /// selectable and copyable.
+    pub fn plain(id: impl Into<ElementId>, text: impl Into<SharedString>) -> Self {
+        Self {
+            id: id.into(),
+            format: Some(TextViewFormat::Plain),
+            text: Some(text.into()),
+            text_view_style: None,
+            inline_code_style: None,
+            list_style: None,
+            blockquote_style: None,
+            style: StyleRefinement::default(),
+            state: None,
+            selectable: true,
+            selection_format: SelectionFormat::default(),
+            scrollable: false,
+            max_lines: None,
+            code_block_actions: None,
+            code_block_highlighter: None,
+            table_actions: None,
+            link_click_handler: None,
+            link_hook: None,
+            link_tooltip: None,
+            task_toggle_handler: None,
+            image_source: None,
+            reveal_handler: None,
+            markdown_extensions: Arc::default(),
+            motion: None,
+        }
+    }
+
     /// Overrides the source of every document image, including embedded data URLs.
     ///
     /// Used for both rendering and intrinsic-size measurement. The returned source
@@ -857,10 +892,12 @@ impl Element for TextView {
                 SharedString::from(format!("{}/state", self.id)),
                 cx,
                 move |_, cx| {
-                    if default_format == TextViewFormat::Markdown {
-                        TextViewState::markdown(default_text.as_str(), cx)
-                    } else {
-                        TextViewState::html(default_text.as_str(), cx)
+                    match default_format {
+                        TextViewFormat::Markdown => {
+                            TextViewState::markdown(default_text.as_str(), cx)
+                        }
+                        TextViewFormat::Html => TextViewState::html(default_text.as_str(), cx),
+                        TextViewFormat::Plain => TextViewState::plain(default_text.as_str(), cx),
                     }
                 },
             );

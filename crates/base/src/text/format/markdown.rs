@@ -75,6 +75,12 @@ fn plain_text_root(source: &str) -> Node {
     })
 }
 
+/// Parse `source` as plain text: one paragraph holding it verbatim, its line
+/// breaks and indentation kept, no markup interpreted.
+pub(crate) fn parse_plain(source: &str, cx: &mut NodeContext) -> ParsedDocument {
+    ast_to_document(source, plain_text_root(source), cx)
+}
+
 /// Parse Markdown into a tree of nodes.
 pub(crate) fn parse(source: &str, cx: &mut NodeContext) -> Result<ParsedDocument, SharedString> {
     let options = cx.markdown_extensions.parse_options();

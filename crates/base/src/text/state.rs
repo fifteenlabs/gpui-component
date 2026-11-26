@@ -68,6 +68,8 @@ pub(super) enum TextViewFormat {
     Markdown,
     /// HTML view
     Html,
+    /// Plain text view: the source is rendered verbatim, no markup parsing.
+    Plain,
 }
 
 /// The format of the text returned by
@@ -196,6 +198,12 @@ impl TextViewState {
     /// Create a HTML TextViewState.
     pub fn html(text: &str, cx: &mut Context<Self>) -> Self {
         Self::new(TextViewFormat::Html, text, cx)
+    }
+
+    /// Create a plain text TextViewState: `text` is shown verbatim, with
+    /// selection and copy but no markup parsing.
+    pub fn plain(text: &str, cx: &mut Context<Self>) -> Self {
+        Self::new(TextViewFormat::Plain, text, cx)
     }
 
     /// Create a new TextViewState.
@@ -464,7 +472,7 @@ impl TextViewState {
     fn effective_format(&self) -> SelectionFormat {
         match self.format {
             TextViewFormat::Markdown => self.selection_format,
-            TextViewFormat::Html => SelectionFormat::Plain,
+            TextViewFormat::Html | TextViewFormat::Plain => SelectionFormat::Plain,
         }
     }
 
@@ -1463,6 +1471,7 @@ fn parse_content(
     let new_document = match format {
         TextViewFormat::Markdown => format::markdown::parse(&source, &mut node_cx),
         TextViewFormat::Html => format::html::parse(&source, &mut node_cx),
+        TextViewFormat::Plain => Ok(format::markdown::parse_plain(&source, &mut node_cx)),
     }?;
 
     if options.append {
