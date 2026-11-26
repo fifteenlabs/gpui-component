@@ -1,10 +1,11 @@
 use std::{rc::Rc, time::Duration};
 
 use crate::animation::{Lerp, ease_in_out_cubic};
+use crate::menu::{ContextMenuExt as _, PopupMenu};
 use crate::{ActiveTheme, Icon, IconName, Selectable, Sizable, Size, StyledExt, h_flex};
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
-    Animation, AnimationExt as _, AnyElement, App, Background, ClickEvent, Edges, ElementId, Hsla,
+    Animation, AnimationExt as _, AnyElement, App, Background, ClickEvent, Context, Edges, ElementId, Hsla,
     InteractiveElement, IntoElement, ParentElement, PathBuilder, Pixels, Point, RenderOnce,
     SharedString, StatefulInteractiveElement, Styled, Window, canvas, div, point, px, relative,
 };
@@ -559,7 +560,11 @@ pub struct Tab {
     pub(super) hovered: bool,
     pub(super) max_width: Option<Pixels>,
     pub(super) on_click: Option<Rc<dyn Fn(&ClickEvent, &mut Window, &mut App) + 'static>>,
+    context_menu: Option<TabContextMenu>,
 }
+
+type TabContextMenu =
+    Rc<dyn Fn(PopupMenu, &mut Window, &mut Context<PopupMenu>) -> PopupMenu + 'static>;
 
 impl From<&'static str> for Tab {
     fn from(label: &'static str) -> Self {
@@ -614,6 +619,7 @@ impl Default for Tab {
             size: Size::default(),
             max_width: None,
             on_click: None,
+            context_menu: None,
         }
     }
 }
@@ -622,6 +628,15 @@ impl Tab {
     /// Create a new tab with a label.
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Show a context menu when the tab, padding included, is right-clicked.
+    pub fn context_menu(
+        mut self,
+        f: impl Fn(PopupMenu, &mut Window, &mut Context<PopupMenu>) -> PopupMenu + 'static,
+    ) -> Self {
+        self.context_menu = Some(Rc::new(f));
+        self
     }
 
     /// Set label for the tab.
@@ -929,7 +944,9 @@ impl RenderOnce for Tab {
         };
 
         let ring = cx.theme().ring;
-        self.base
+        let context_menu = self.context_menu.clone();
+        let tab = self
+            .base
             .id(self.ix)
             .selected(self.selected)
             .disabled(self.disabled)
@@ -1091,7 +1108,13 @@ impl RenderOnce for Tab {
             })
             .when_some(self.on_click.clone(), |this, on_click| {
                 this.on_click(move |event, window, cx| on_click(event, window, cx))
-            })
+            });
+        match context_menu {
+            Some(menu) => tab
+                .context_menu(move |popup, window, cx| menu(popup, window, cx))
+                .into_any_element(),
+            None => tab.into_any_element(),
+        }
     }
 }
 
