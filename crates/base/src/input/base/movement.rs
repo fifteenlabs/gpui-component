@@ -376,7 +376,35 @@ impl<M: InputModeKind> InputBaseState<M> {
             return;
         }
 
+        // With nowhere higher to go, the action bubbles instead of being
+        // consumed, so an ancestor can act on it, such as a chat composer
+        // recalling the message sent last.
+        if self.is_single_line()
+            || (self.selections.len() == 1
+                && self.active_selection().is_empty()
+                && self.on_first_display_row())
+        {
+            cx.propagate();
+            return;
+        }
+
         self.move_vertical(-1, true, window, cx);
+    }
+
+    /// Whether the cursor sits on the first display row, so `MoveUp` has
+    /// nowhere to go. The row math mirrors [`Self::vertical_target`].
+    fn on_first_display_row(&self) -> bool {
+        let display_point = self
+            .display_map
+            .offset_to_wrap_display_point(self.cursor());
+        let display_row = self
+            .display_map
+            .wrap_row_to_display_row(display_point.row)
+            .unwrap_or_else(|| {
+                self.display_map
+                    .nearest_visible_display_row(display_point.row)
+            });
+        display_row == 0
     }
 
     pub(super) fn down(&mut self, action: &MoveDown, window: &mut Window, cx: &mut Context<Self>) {
